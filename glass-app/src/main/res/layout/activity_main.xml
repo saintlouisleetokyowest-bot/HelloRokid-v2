@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/rokid_black"
+    android:focusable="true"
+    android:focusableInTouchMode="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/titleText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="@string/title"
+            android:textColor="@color/rokid_green"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <ScrollView
+            android:id="@+id/scrollView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:scrollbars="vertical"
+            android:fadeScrollbars="false"
+            android:scrollbarStyle="insideInset"
+            android:scrollbarThumbVertical="@color/rokid_green"
+            android:scrollbarTrackVertical="@android:color/transparent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/readyHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/hint_scan"
+                android:textColor="@color/rokid_green"
+                android:textSize="22sp" />
+
+            <TextView
+                android:id="@+id/scanningHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/hint_scanning"
+                android:textColor="@color/rokid_green"
+                android:textSize="22sp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/resultPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="5dp"
+                    android:text="@string/section_person"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/personNameText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/person_name"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="17sp" />
+
+                <TextView
+                    android:id="@+id/personTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/person_title"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/personAuthorityText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="14dp"
+                    android:text="@string/person_authority"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="5dp"
+                    android:text="@string/section_company"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/companyNameText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/company_name"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="17sp" />
+
+                <TextView
+                    android:id="@+id/companyIndustryText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/company_industry"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/companySizeText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/company_size"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/companyRevenueText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="14dp"
+                    android:text="@string/company_revenue"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="5dp"
+                    android:text="@string/section_business"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/businessCoreText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/business_core"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/businessMarketsText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/business_markets"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/businessPartnersText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="14dp"
+                    android:text="@string/business_partners"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="5dp"
+                    android:text="@string/section_opportunity"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/oppNeedsText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/opp_needs"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/oppInvestmentText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
+                    android:text="@string/opp_invest"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/oppTimingText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/opp_timing"
+                    android:textColor="@color/rokid_green"
+                    android:textSize="16sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        </ScrollView>
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/status_ready"
+            android:textColor="@color/rokid_green"
+            android:textSize="15sp" />
+
+    </LinearLayout>
+
+</FrameLayout>

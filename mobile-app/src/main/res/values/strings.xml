@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">RokidCard</string>
+    <string name="title">RokidCard</string>
+    <string name="hint_scan">Press to take photo</string>
+    <string name="hint_scanning">AI analyzing…</string>
+    <string name="status_ready">Ready for photo</string>
+    <string name="status_scanning">Analyzing business card…</string>
+    <string name="status_result">Analysis complete</string>
+
+    <string name="section_person">◆ Personal</string>
+    <string name="person_name">• Name</string>
+    <string name="person_title">• Title</string>
+    <string name="person_authority">• Authority</string>
+
+    <string name="section_company">◆ Company</string>
+    <string name="company_name">• Company</string>
+    <string name="company_industry">• Industry</string>
+    <string name="company_size">• Size</string>
+    <string name="company_revenue">• Revenue</string>
+
+    <string name="section_business">◆ Business</string>
+    <string name="business_core">• Core Business</string>
+    <string name="business_markets">• Markets</string>
+    <string name="business_partners">• Partners</string>
+
+    <string name="section_opportunity">◆ Opportunities</string>
+    <string name="opp_needs">• Needs</string>
+    <string name="opp_invest">• Partnership Interest</string>
+    <string name="opp_timing">• Timing</string>
+</resources>
