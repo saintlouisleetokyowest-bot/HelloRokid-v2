@@ -13,6 +13,45 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def _is_inside_unclosed_string(text: str) -> bool:
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+    return in_string
+
+
+def _repair_truncated_json_object(text: str) -> dict[str, Any] | None:
+    """Best-effort recovery when Gemini output is cut off mid-JSON."""
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    candidate = text[start:].rstrip().rstrip(",")
+    if _is_inside_unclosed_string(candidate):
+        candidate += '"'
+
+    open_braces = candidate.count("{") - candidate.count("}")
+    if open_braces > 0:
+        candidate += "}" * open_braces
+
+    try:
+        result = json.loads(candidate)
+        if isinstance(result, dict):
+            logger.warning("Recovered truncated JSON by auto-closing braces/quotes")
+            return result
+    except json.JSONDecodeError:
+        pass
+    return None
+
+
 def parse_json_response(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
@@ -32,8 +71,15 @@ def parse_json_response(text: str) -> dict[str, Any]:
             if isinstance(result, dict):
                 return result
         except json.JSONDecodeError as exc:
+            repaired = _repair_truncated_json_object(cleaned)
+            if repaired is not None:
+                return repaired
             logger.error("JSON parse failed, raw response: %s", cleaned[:800])
             raise ValueError(f"Gemini 返回的 JSON 无法解析: {exc}") from exc
+
+    repaired = _repair_truncated_json_object(cleaned)
+    if repaired is not None:
+        return repaired
 
     logger.error("No JSON object in response: %s", cleaned[:800])
     raise ValueError("Gemini 未返回有效 JSON")
@@ -49,6 +95,14 @@ def extract_response_text(result: dict[str, Any]) -> str:
     if not texts:
         raise ValueError("Gemini response has no text parts")
     return "\n".join(texts)
+
+
+def extract_finish_reason(result: dict[str, Any]) -> str | None:
+    candidates = result.get("candidates") or []
+    if not candidates:
+        return None
+    reason = candidates[0].get("finishReason")
+    return str(reason) if reason else None
 
 
 class GeminiClient:
@@ -100,6 +154,27 @@ class GeminiClient:
             },
         }
 
+        result = self._post_generate(request_data)
+        text = extract_response_text(result)
+        finish_reason = extract_finish_reason(result)
+
+        if finish_reason == "MAX_TOKENS" and max_output_tokens < 8192:
+            retry_tokens = min(max_output_tokens * 2, 8192)
+            logger.warning(
+                "Gemini output truncated (MAX_TOKENS, limit=%d); retrying with %d tokens",
+                max_output_tokens,
+                retry_tokens,
+            )
+            request_data["generationConfig"]["maxOutputTokens"] = retry_tokens
+            result = self._post_generate(request_data)
+            text = extract_response_text(result)
+            finish_reason = extract_finish_reason(result)
+            if finish_reason == "MAX_TOKENS":
+                logger.warning("Gemini output still truncated after retry; attempting JSON repair")
+
+        return parse_json_response(text)
+
+    def _post_generate(self, request_data: dict[str, Any]) -> dict[str, Any]:
         response = requests.post(
             self.api_url,
             json=request_data,
@@ -114,7 +189,4 @@ class GeminiClient:
                     f"请确认 .env 中的 Key 来自 Google AI Studio (AIza... 开头)。详情: {detail}"
                 )
             raise ValueError(f"Gemini 请求失败 HTTP {response.status_code}: {detail}")
-
-        result = response.json()
-        text = extract_response_text(result)
-        return parse_json_response(text)
+        return response.json()

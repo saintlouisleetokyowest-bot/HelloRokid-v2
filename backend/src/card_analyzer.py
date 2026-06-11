@@ -72,7 +72,7 @@ ENRICH_INTEL_PROMPT_TEMPLATE = """You are a B2B sales intelligence assistant.
 Based on the business card contact information and the web search results below, fill in the company intelligence fields.
 
 Rules:
-- Write each field in concise Chinese (1-2 short sentences).
+- Write each field in concise Chinese (1 short sentence, at most 80 Chinese characters per field).
 - Prefer facts supported by the search results.
 - If evidence is weak or missing, return an empty string for that field. Do not fabricate.
 - opportunities, investmentReadiness, and timing may include careful business judgment, but must still be grounded in the provided evidence.
@@ -157,7 +157,7 @@ class CardAnalyzer:
             prompt,
             INTEL_SCHEMA,
             temperature=0.3,
-            max_output_tokens=1536,
+            max_output_tokens=4096,
         )
         intel = _normalize_string_map(raw, INTEL_FIELDS)
         filled = sum(1 for value in intel.values() if value)
