@@ -2,8 +2,6 @@ package com.example.hellorokid.glass.camera
 
 import android.Manifest
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
@@ -20,16 +18,20 @@ import android.util.Size
 import androidx.annotation.RequiresPermission
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
- * Rokid 眼镜相机管理器，使用 Camera2 API 拍照。
+ * Rokid 眼镜相机：对齐 v1 的最简 Camera2 单次拍照（不做 AE 预捕获，避免 Rokid 回调卡死）。
+ * 旋转、提亮、灰度压缩在 [com.example.hellorokid.shared.image.ImageBleProcessor] 中处理。
  */
 class RokidCameraManager(private val context: Context) {
 
     companion object {
         private const val TAG = "RokidCameraManager"
+        private const val CAPTURE_TIMEOUT_MS = 10_000L
+        private const val MAX_ATTEMPTS = 2
     }
 
     private var cameraDevice: CameraDevice? = null
@@ -38,28 +40,32 @@ class RokidCameraManager(private val context: Context) {
     private var backgroundHandler: Handler? = null
     private var imageReader: ImageReader? = null
 
-    private fun startBackgroundThread() {
-        backgroundThread = HandlerThread("CameraBackground").apply {
-            start()
-            backgroundHandler = Handler(looper)
+    @RequiresPermission(Manifest.permission.CAMERA)
+    suspend fun capturePhotoJpeg(): Result<ByteArray> = withContext(Dispatchers.IO) {
+        repeat(MAX_ATTEMPTS) { attempt ->
+            val attemptNo = attempt + 1
+            Log.d(TAG, "=== Capture attempt $attemptNo/$MAX_ATTEMPTS ===")
+            val result = captureOnce()
+            if (result.isSuccess) {
+                return@withContext result
+            }
+            val error = result.exceptionOrNull()
+            val timedOut = error?.message?.contains("Timed out", ignoreCase = true) == true
+            if (!timedOut || attemptNo >= MAX_ATTEMPTS) {
+                return@withContext Result.failure(
+                    if (timedOut) Exception("拍照超时，请重试")
+                    else error ?: Exception("拍照失败")
+                )
+            }
+            Log.w(TAG, "Attempt $attemptNo timed out, retrying...")
+            delay(300)
         }
-    }
-
-    private fun stopBackgroundThread() {
-        backgroundThread?.quitSafely()
-        try {
-            backgroundThread?.join()
-            backgroundThread = null
-            backgroundHandler = null
-        } catch (e: InterruptedException) {
-            Log.e(TAG, "Error stopping background thread", e)
-        }
+        Result.failure(Exception("拍照超时，请重试"))
     }
 
     @RequiresPermission(Manifest.permission.CAMERA)
-    suspend fun capturePhoto(): Result<Bitmap> = withContext(Dispatchers.IO) {
+    private suspend fun captureOnce(): Result<ByteArray> {
         try {
-            Log.d(TAG, "Starting camera capture")
             val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
             val cameraIdList = try {
@@ -70,55 +76,69 @@ class RokidCameraManager(private val context: Context) {
             }
 
             if (cameraIdList.isEmpty()) {
-                return@withContext Result.failure(Exception("No camera found"))
+                return Result.failure(Exception("未找到相机"))
             }
+
+            Log.d(TAG, "Available cameras: ${cameraIdList.joinToString()}")
 
             val cameraId = cameraIdList.firstOrNull { id ->
                 try {
-                    val characteristics = cameraManager.getCameraCharacteristics(id)
-                    characteristics.get(CameraCharacteristics.LENS_FACING) ==
+                    cameraManager.getCameraCharacteristics(id)
+                        .get(CameraCharacteristics.LENS_FACING) ==
                         CameraCharacteristics.LENS_FACING_BACK
                 } catch (e: Exception) {
+                    Log.w(TAG, "Error checking camera $id", e)
                     false
                 }
             } ?: cameraIdList.first()
 
+            Log.d(TAG, "Selected camera: $cameraId")
+
             startBackgroundThread()
-            val photoResult = CompletableDeferred<Bitmap>()
+            val photoResult = CompletableDeferred<ByteArray>()
 
-            cameraManager.openCamera(
-                cameraId,
-                object : CameraDevice.StateCallback() {
-                    override fun onOpened(camera: CameraDevice) {
-                        cameraDevice = camera
-                        startCaptureSession(camera, cameraId, cameraManager, photoResult)
-                    }
+            try {
+                cameraManager.openCamera(
+                    cameraId,
+                    object : CameraDevice.StateCallback() {
+                        override fun onOpened(camera: CameraDevice) {
+                            Log.d(TAG, "Camera opened")
+                            cameraDevice = camera
+                            startCaptureSession(camera, cameraId, cameraManager, photoResult)
+                        }
 
-                    override fun onDisconnected(camera: CameraDevice) {
-                        camera.close()
-                        photoResult.completeExceptionally(Exception("Camera disconnected"))
-                    }
+                        override fun onDisconnected(camera: CameraDevice) {
+                            Log.w(TAG, "Camera disconnected")
+                            camera.close()
+                            photoResult.completeExceptionally(Exception("相机已断开"))
+                        }
 
-                    override fun onError(camera: CameraDevice, error: Int) {
-                        camera.close()
-                        photoResult.completeExceptionally(Exception("Camera error: $error"))
-                    }
-                },
-                backgroundHandler
-            )
-
-            return@withContext try {
-                val bitmap = withTimeout(5000) { photoResult.await() }
-                Result.success(bitmap)
+                        override fun onError(camera: CameraDevice, error: Int) {
+                            Log.e(TAG, "Camera error: $error")
+                            camera.close()
+                            photoResult.completeExceptionally(Exception("相机错误: $error"))
+                        }
+                    },
+                    backgroundHandler
+                )
             } catch (e: Exception) {
+                Log.e(TAG, "Error opening camera", e)
+                return Result.failure(e)
+            }
+
+            return try {
+                val jpeg = withTimeout(CAPTURE_TIMEOUT_MS) { photoResult.await() }
+                Log.i(TAG, "Capture OK: ${jpeg.size} bytes")
+                Result.success(jpeg)
+            } catch (e: Exception) {
+                Log.e(TAG, "Capture failed", e)
                 Result.failure(e)
-            } finally {
-                closeCamera()
-                stopBackgroundThread()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error capturing photo, using test bitmap", e)
-            Result.success(createTestBitmap())
+            Log.e(TAG, "Capture error", e)
+            return Result.failure(e)
+        } finally {
+            releaseCameraAndThread()
         }
     }
 
@@ -126,35 +146,45 @@ class RokidCameraManager(private val context: Context) {
         camera: CameraDevice,
         cameraId: String,
         cameraManager: CameraManager,
-        photoResult: CompletableDeferred<Bitmap>
+        photoResult: CompletableDeferred<ByteArray>
     ) {
         try {
             val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            val streamConfigMap = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val streamConfigMap =
+                characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val outputSizes = streamConfigMap?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
-            val optimalSize = outputSizes.firstOrNull() ?: Size(640, 480)
+            val optimalSize = chooseJpegSize(outputSizes)
+            Log.d(TAG, "JPEG size: ${optimalSize.width}x${optimalSize.height}")
 
             imageReader = ImageReader.newInstance(
                 optimalSize.width,
                 optimalSize.height,
                 ImageFormat.JPEG,
-                1
+                2
             ).apply {
                 setOnImageAvailableListener(
                     { reader ->
-                        val image = reader.acquireNextImage()
+                        val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
                         try {
                             val buffer = image.planes[0].buffer
                             val bytes = ByteArray(buffer.remaining())
                             buffer.get(bytes)
-                            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (bitmap != null) {
-                                photoResult.complete(bitmap)
-                            } else {
-                                photoResult.completeExceptionally(Exception("Failed to decode bitmap"))
+                            if (!isValidJpeg(bytes)) {
+                                Log.w(TAG, "Invalid JPEG frame: ${bytes.size} bytes")
+                                if (!photoResult.isCompleted) {
+                                    photoResult.completeExceptionally(
+                                        Exception("无效 JPEG（${bytes.size} bytes）")
+                                    )
+                                }
+                            } else if (!photoResult.isCompleted) {
+                                Log.d(TAG, "JPEG received: ${bytes.size} bytes")
+                                photoResult.complete(bytes)
                             }
                         } catch (e: Exception) {
-                            photoResult.completeExceptionally(e)
+                            Log.e(TAG, "Error reading image", e)
+                            if (!photoResult.isCompleted) {
+                                photoResult.completeExceptionally(e)
+                            }
                         } finally {
                             image.close()
                         }
@@ -167,41 +197,87 @@ class RokidCameraManager(private val context: Context) {
                 listOf(imageReader!!.surface),
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
+                        Log.d(TAG, "Capture session configured")
                         captureSession = session
-                        try {
-                            val captureRequestBuilder =
-                                session.device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
-                            captureRequestBuilder.addTarget(imageReader!!.surface)
-                            session.capture(
-                                captureRequestBuilder.build(),
-                                object : CameraCaptureSession.CaptureCallback() {
-                                    override fun onCaptureCompleted(
-                                        session: CameraCaptureSession,
-                                        request: CaptureRequest,
-                                        result: TotalCaptureResult
-                                    ) {
-                                        super.onCaptureCompleted(session, request, result)
-                                    }
-                                },
-                                backgroundHandler
-                            )
-                        } catch (e: Exception) {
-                            photoResult.completeExceptionally(e)
-                        }
+                        triggerStillCapture(session, photoResult)
                     }
 
                     override fun onConfigureFailed(session: CameraCaptureSession) {
-                        photoResult.completeExceptionally(Exception("Session configure failed"))
+                        Log.e(TAG, "Capture session configure failed")
+                        photoResult.completeExceptionally(Exception("相机会话配置失败"))
                     }
                 },
                 backgroundHandler
             )
         } catch (e: Exception) {
+            Log.e(TAG, "Error starting capture session", e)
             photoResult.completeExceptionally(e)
         }
     }
 
-    private fun closeCamera() {
+    /**
+     * 与 v1 一致：仅 STILL_CAPTURE + target，不设置 AE/曝光补偿/Orientation（Rokid 上易卡死）。
+     */
+    private fun triggerStillCapture(
+        session: CameraCaptureSession,
+        photoResult: CompletableDeferred<ByteArray>
+    ) {
+        try {
+            val builder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+            builder.addTarget(imageReader!!.surface)
+
+            session.capture(
+                builder.build(),
+                object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: TotalCaptureResult
+                    ) {
+                        Log.d(TAG, "Still capture completed")
+                    }
+                },
+                backgroundHandler
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error triggering capture", e)
+            photoResult.completeExceptionally(e)
+        }
+    }
+
+    /** 优先选中等分辨率，避免过大尺寸在 Rokid 上过慢 */
+    private fun chooseJpegSize(sizes: Array<Size>): Size {
+        if (sizes.isEmpty()) return Size(640, 480)
+        val sorted = sizes.sortedByDescending { it.width * it.height }
+        return sorted.firstOrNull { it.width <= 1920 && it.height <= 1080 }
+            ?: sorted.last()
+    }
+
+    private fun isValidJpeg(bytes: ByteArray): Boolean {
+        if (bytes.size < 100) return false
+        return bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte()
+    }
+
+    private fun startBackgroundThread() {
+        backgroundThread = HandlerThread("CameraBackground").apply {
+            start()
+            backgroundHandler = Handler(looper)
+        }
+    }
+
+    private fun stopBackgroundThread() {
+        backgroundThread?.quitSafely()
+        try {
+            backgroundThread?.join()
+        } catch (e: InterruptedException) {
+            Log.e(TAG, "Error stopping background thread", e)
+        }
+        backgroundThread = null
+        backgroundHandler = null
+    }
+
+    /** 关闭相机后稍等再停后台线程，避免 Camera2 回调打到 dead thread（minSdk 24 无 close(callback)） */
+    private suspend fun releaseCameraAndThread() {
         try {
             captureSession?.stopRepeating()
             captureSession?.abortCaptures()
@@ -210,21 +286,18 @@ class RokidCameraManager(private val context: Context) {
             Log.w(TAG, "Error closing session", e)
         }
         captureSession = null
-        cameraDevice?.close()
-        cameraDevice = null
+
         imageReader?.close()
         imageReader = null
-    }
 
-    fun createTestBitmap(): Bitmap {
-        val bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bitmap)
-        val paint = android.graphics.Paint()
-        paint.color = android.graphics.Color.WHITE
-        canvas.drawPaint(paint)
-        paint.color = android.graphics.Color.BLACK
-        paint.textSize = 32f
-        canvas.drawText("Rokid Card Scanner", 50f, 100f, paint)
-        return bitmap
+        try {
+            cameraDevice?.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error closing camera device", e)
+        }
+        cameraDevice = null
+
+        delay(400)
+        stopBackgroundThread()
     }
 }

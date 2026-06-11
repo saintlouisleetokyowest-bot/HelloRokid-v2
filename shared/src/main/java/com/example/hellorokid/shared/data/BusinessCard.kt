@@ -3,8 +3,11 @@ package com.example.hellorokid.shared.data
 data class BusinessCard(
     val name: String = "",
     val title: String = "",
+    val department: String = "",
     val company: String = "",
     val phone: String = "",
+    val mobile: String = "",
+    val fax: String = "",
     val email: String = "",
     val address: String = "",
     val website: String = "",

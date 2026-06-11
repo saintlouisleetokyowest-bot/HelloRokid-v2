@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_export_vcard"
+        android:title="@string/action_export_vcard"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_export_csv"
+        android:title="@string/action_export_csv"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_disconnect"
+        android:title="@string/action_disconnect"
+        app:showAsAction="never" />
+
+</menu>

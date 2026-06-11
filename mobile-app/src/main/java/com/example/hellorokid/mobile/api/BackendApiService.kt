@@ -5,6 +5,7 @@ import android.util.Base64
 import android.util.Log
 import com.example.hellorokid.mobile.BuildConfig
 import com.example.hellorokid.shared.data.BusinessCard
+import com.example.hellorokid.shared.image.ImagePostProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,36 +33,55 @@ class BackendApiService {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun analyzeBusinessCard(bitmap: Bitmap): Result<BusinessCard> = withContext(Dispatchers.IO) {
+    /** 直接上传眼镜传来的原始 JPEG，避免二次压缩（对齐 v1 链路）。 */
+    suspend fun analyzeBusinessCard(jpegBytes: ByteArray): Result<BusinessCard> = withContext(Dispatchers.IO) {
         try {
-            val base64Image = bitmapToBase64(bitmap)
-            val requestBody = JSONObject()
-                .put("image", base64Image)
-                .toString()
-                .toRequestBody("application/json".toMediaType())
-
-            val request = Request.Builder()
-                .url("$backendUrl/api/analyze")
-                .post(requestBody)
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                val errorBody = response.body?.string()
-                throw Exception("Backend error ${response.code}: $errorBody")
-            }
-
-            val responseBody = response.body?.string() ?: throw Exception("Empty response")
-            Result.success(parseBusinessCard(responseBody))
+            val base64Image = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+            postAnalyze(base64Image)
         } catch (e: Exception) {
             Log.e(TAG, "Backend analysis failed", e)
             Result.failure(e)
         }
     }
 
+    suspend fun analyzeBusinessCard(bitmap: Bitmap): Result<BusinessCard> = withContext(Dispatchers.IO) {
+        try {
+            val enhanced = ImagePostProcessor.enhanceForOcr(bitmap)
+            val base64Image = bitmapToBase64(enhanced)
+            if (enhanced !== bitmap) {
+                enhanced.recycle()
+            }
+            postAnalyze(base64Image)
+        } catch (e: Exception) {
+            Log.e(TAG, "Backend analysis failed", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun postAnalyze(base64Image: String): Result<BusinessCard> {
+        val requestBody = JSONObject()
+            .put("image", base64Image)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url("$backendUrl/api/analyze")
+            .post(requestBody)
+            .build()
+
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            val errorBody = response.body?.string()
+            throw Exception("Backend error ${response.code}: $errorBody")
+        }
+
+        val responseBody = response.body?.string() ?: throw Exception("Empty response")
+        return Result.success(parseBusinessCard(responseBody))
+    }
+
     private fun bitmapToBase64(bitmap: Bitmap): String {
         val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
         return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
     }
 
@@ -70,8 +90,11 @@ class BackendApiService {
         return BusinessCard(
             name = json.optString("name", ""),
             title = json.optString("title", ""),
+            department = json.optString("department", ""),
             company = json.optString("company", ""),
             phone = json.optString("phone", ""),
+            mobile = json.optString("mobile", ""),
+            fax = json.optString("fax", ""),
             email = json.optString("email", ""),
             address = json.optString("address", ""),
             website = json.optString("website", ""),

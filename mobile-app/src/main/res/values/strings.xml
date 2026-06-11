@@ -1,30 +1,69 @@
 <resources>
-    <string name="app_name">RokidCard</string>
-    <string name="title">RokidCard</string>
-    <string name="hint_scan">Press to take photo</string>
-    <string name="hint_scanning">AI analyzing…</string>
-    <string name="status_ready">Ready for photo</string>
-    <string name="status_scanning">Analyzing business card…</string>
-    <string name="status_result">Analysis complete</string>
+    <string name="app_name">Rokid Card Manager</string>
+    <string name="mobile_app_title">Rokid Card Manager</string>
 
-    <string name="section_person">◆ Personal</string>
-    <string name="person_name">• Name</string>
-    <string name="person_title">• Title</string>
-    <string name="person_authority">• Authority</string>
+    <!-- Connection -->
+    <string name="status_disconnected">未连接眼镜</string>
+    <string name="status_scanning">正在连接…</string>
+    <string name="status_connected">已连接眼镜</string>
+    <string name="status_analyzing">AI 分析中…</string>
+    <string name="status_receiving">接收图片中…</string>
+    <string name="status_hint_disconnected">连接 Rokid Glass 后，可接收眼镜端扫描的名片</string>
+    <string name="status_hint_connected">等待眼镜端扫描，或从相册导入名片图片</string>
+    <string name="status_hint_receiving">正在通过蓝牙接收眼镜拍摄的名片图片…</string>
+    <string name="status_hint_analyzing">正在调用后端分析名片，请稍候…</string>
+    <string name="card_count_badge">%1$d 张名片</string>
 
-    <string name="section_company">◆ Company</string>
-    <string name="company_name">• Company</string>
-    <string name="company_industry">• Industry</string>
-    <string name="company_size">• Size</string>
-    <string name="company_revenue">• Revenue</string>
+    <!-- Actions -->
+    <string name="action_connect_glass">连接眼镜</string>
+    <string name="action_disconnect">断开连接</string>
+    <string name="action_import_image">相册导入</string>
+    <string name="action_export_vcard">导出 vCard</string>
+    <string name="action_export_csv">导出 CSV</string>
+    <string name="action_call">拨打电话</string>
+    <string name="action_email">发送邮件</string>
 
-    <string name="section_business">◆ Business</string>
-    <string name="business_core">• Core Business</string>
-    <string name="business_markets">• Markets</string>
-    <string name="business_partners">• Partners</string>
+    <!-- List -->
+    <string name="section_my_cards">我的名片</string>
+    <string name="empty_cards_title">还没有名片</string>
+    <string name="empty_cards_subtitle">连接眼镜扫描，或从相册导入名片图片</string>
 
-    <string name="section_opportunity">◆ Opportunities</string>
-    <string name="opp_needs">• Needs</string>
-    <string name="opp_invest">• Partnership Interest</string>
-    <string name="opp_timing">• Timing</string>
+    <!-- Detail -->
+    <string name="detail_scanned_at">扫描时间：%1$s</string>
+    <string name="section_contact">联系信息</string>
+    <string name="section_company_intel">公司情报</string>
+    <string name="section_business_intel">业务分析</string>
+    <string name="section_opportunity">合作机会</string>
+    <string name="label_name">姓名</string>
+    <string name="label_title">职位</string>
+    <string name="label_department">部门</string>
+    <string name="label_company">公司</string>
+    <string name="label_phone">电话</string>
+    <string name="label_mobile">手机</string>
+    <string name="label_fax">传真</string>
+    <string name="label_email">邮箱</string>
+    <string name="label_address">地址</string>
+    <string name="label_website">网站</string>
+    <string name="label_industry">行业</string>
+    <string name="label_company_size">公司规模</string>
+    <string name="label_revenue">营收估算</string>
+    <string name="label_core_business">核心业务</string>
+    <string name="label_markets">市场覆盖</string>
+    <string name="label_partners">合作伙伴</string>
+    <string name="label_opportunities">潜在商机</string>
+    <string name="label_investment">合作意向</string>
+    <string name="label_timing">时机判断</string>
+
+    <!-- Messages -->
+    <string name="no_phone">暂无电话号码</string>
+    <string name="no_email">暂无邮箱地址</string>
+    <string name="delete">删除</string>
+    <string name="delete_card_title">删除名片</string>
+    <string name="delete_card_message">确定要删除这张名片吗？此操作不可撤销。</string>
+    <string name="card_deleted">名片已删除</string>
+    <string name="delete_card_confirm">删除「%1$s」？</string>
+    <string name="export_success">已导出到下载目录</string>
+    <string name="export_share_title">分享导出文件</string>
+    <string name="permission_bluetooth_required">需要蓝牙权限才能连接眼镜</string>
+    <string name="permission_image_required">需要相册权限才能导入图片</string>
 </resources>

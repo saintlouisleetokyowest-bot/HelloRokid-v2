@@ -18,11 +18,16 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.hellorokid.glass.ble.GlassBleServer
+import com.example.hellorokid.glass.camera.RokidCameraManager
 import com.example.hellorokid.shared.data.BusinessCard
+import com.example.hellorokid.shared.image.ImageBleProcessor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 /**
- * Rokid 眼镜端：拍照并通过 BLE 发送给手机
+ * Rokid 眼镜端：拍照并通过 BLE 发送给手机，接收 AI 结果并展示
  */
 class MainActivity : AppCompatActivity() {
 
@@ -31,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private enum class ScanState {
-        READY, SCANNING, RESULT, CONNECTING
+        READY, SCANNING, WAITING, RESULT, CONNECTING
     }
 
     private lateinit var readyHint: TextView
@@ -42,10 +47,22 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var personNameText: TextView
     private lateinit var personTitleText: TextView
+    private lateinit var personAuthorityText: TextView
     private lateinit var companyNameText: TextView
+    private lateinit var companyIndustryText: TextView
+    private lateinit var companySizeText: TextView
+    private lateinit var companyRevenueText: TextView
+    private lateinit var businessCoreText: TextView
+    private lateinit var businessMarketsText: TextView
+    private lateinit var businessPartnersText: TextView
+    private lateinit var oppNeedsText: TextView
+    private lateinit var oppInvestmentText: TextView
+    private lateinit var oppTimingText: TextView
 
     private var currentState = ScanState.READY
     private val handler = Handler(Looper.getMainLooper())
+    private lateinit var bleServer: GlassBleServer
+    private val cameraManager by lazy { RokidCameraManager(this) }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -70,7 +87,55 @@ class MainActivity : AppCompatActivity() {
         }
 
         initViews()
+        setupBleServer()
         renderState(ScanState.READY)
+    }
+
+    override fun onDestroy() {
+        bleServer.stop()
+        super.onDestroy()
+    }
+
+    private fun setupBleServer() {
+        bleServer = GlassBleServer(this)
+        bleServer.setListener(object : GlassBleServer.Listener {
+            override fun onAdvertisingStarted() {
+                showToast("等待手机连接…")
+            }
+
+            override fun onAdvertisingFailed(errorCode: Int) {
+                showToast("蓝牙广播失败 ($errorCode)")
+            }
+
+            override fun onClientConnected() {
+                showToast("手机已连接")
+            }
+
+            override fun onClientDisconnected() {
+                showToast("手机已断开")
+                if (currentState == ScanState.WAITING) {
+                    renderState(ScanState.READY)
+                }
+            }
+
+            override fun onCardResultReceived(card: BusinessCard) {
+                runOnUiThread {
+                    updateResultUI(card)
+                    renderState(ScanState.RESULT)
+                    showToast("AI 分析完成")
+                }
+            }
+
+            override fun onCardResultError(message: String) {
+                runOnUiThread {
+                    showToast("分析失败: $message")
+                    renderState(ScanState.READY)
+                }
+            }
+        })
+        if (!bleServer.start()) {
+            showToast("蓝牙启动失败，请检查蓝牙是否开启")
+        }
     }
 
     private fun initViews() {
@@ -82,7 +147,17 @@ class MainActivity : AppCompatActivity() {
 
         personNameText = findViewById(R.id.personNameText)
         personTitleText = findViewById(R.id.personTitleText)
+        personAuthorityText = findViewById(R.id.personAuthorityText)
         companyNameText = findViewById(R.id.companyNameText)
+        companyIndustryText = findViewById(R.id.companyIndustryText)
+        companySizeText = findViewById(R.id.companySizeText)
+        companyRevenueText = findViewById(R.id.companyRevenueText)
+        businessCoreText = findViewById(R.id.businessCoreText)
+        businessMarketsText = findViewById(R.id.businessMarketsText)
+        businessPartnersText = findViewById(R.id.businessPartnersText)
+        oppNeedsText = findViewById(R.id.oppNeedsText)
+        oppInvestmentText = findViewById(R.id.oppInvestmentText)
+        oppTimingText = findViewById(R.id.oppTimingText)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -92,9 +167,8 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
                 when (currentState) {
                     ScanState.READY -> checkPermissionsAndScan()
-                    ScanState.SCANNING -> {}
+                    ScanState.SCANNING, ScanState.WAITING, ScanState.CONNECTING -> {}
                     ScanState.RESULT -> renderState(ScanState.READY)
-                    ScanState.CONNECTING -> {}
                 }
                 return true
             }
@@ -140,22 +214,52 @@ class MainActivity : AppCompatActivity() {
 
     private fun openCamera() {
         renderState(ScanState.SCANNING)
+        statusText.text = "拍照中，请保持稳定…"
 
         lifecycleScope.launch {
             try {
-                // TODO: 调用 RokidCameraManager 拍照，通过 BLE 发送到手机端
-                showToast("扫描成功！（测试数据）")
-                val testCard = BusinessCard(
-                    name = "张三",
-                    title = "CEO",
-                    company = "未来科技",
-                    phone = "13800138000",
-                    email = "zhangsan@example.com"
+                if (!bleServer.isConnected()) {
+                    showToast("手机未连接，请先在手机端点击「连接眼镜」")
+                    renderState(ScanState.READY)
+                    return@launch
+                }
+
+                val captureResult = cameraManager.capturePhotoJpeg()
+                val rawJpeg = captureResult.getOrElse { error ->
+                    Log.e(TAG, "Camera failed", error)
+                    val msg = error.message ?: "未知错误"
+                    showToast(
+                        if (msg.contains("超时")) "拍照超时，请重试"
+                        else "拍照失败: $msg"
+                    )
+                    renderState(ScanState.READY)
+                    return@launch
+                }
+
+                renderState(ScanState.CONNECTING)
+                statusText.text = "处理中..."
+
+                val processed = withContext(Dispatchers.Default) {
+                    ImageBleProcessor.prepareForBleTransfer(rawJpeg)
+                }
+
+                statusText.text = "发送中..."
+                showToast("发送中（${processed.outputSize / 1024}KB）…")
+
+                val sendResult = bleServer.sendJpeg(processed.jpegBytes)
+                sendResult.fold(
+                    onSuccess = {
+                        showToast("图片已发送，等待 AI 分析…")
+                        renderState(ScanState.WAITING)
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "BLE send failed", error)
+                        showToast("发送失败: ${error.message}")
+                        renderState(ScanState.READY)
+                    }
                 )
-                updateResultUI(testCard)
-                renderState(ScanState.RESULT)
             } catch (e: Exception) {
-                Log.e(TAG, "Camera failed", e)
+                Log.e(TAG, "Scan failed", e)
                 showToast("扫描失败: ${e.message}")
                 renderState(ScanState.READY)
             }
@@ -163,9 +267,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateResultUI(card: BusinessCard) {
-        personNameText.text = "• ${card.name}"
-        personTitleText.text = "• ${card.title}"
-        companyNameText.text = "• ${card.company}"
+        setField(personNameText, card.name)
+        setField(personTitleText, card.title)
+        val contact = listOf(card.phone, card.mobile, card.fax, card.email)
+            .filter { it.isNotBlank() }
+            .joinToString(" / ")
+        setField(personAuthorityText, contact)
+        setField(companyNameText, card.company)
+        setField(companyIndustryText, card.industry)
+        setField(companySizeText, card.companySize)
+        setField(companyRevenueText, card.revenue)
+        setField(businessCoreText, card.coreBusiness)
+        setField(businessMarketsText, card.markets)
+        setField(businessPartnersText, card.partners)
+        setField(oppNeedsText, card.opportunities)
+        setField(oppInvestmentText, card.investmentReadiness)
+        setField(oppTimingText, card.timing)
+        scrollView.scrollTo(0, 0)
+    }
+
+    private fun setField(view: TextView, value: String) {
+        if (value.isBlank()) {
+            view.visibility = View.GONE
+        } else {
+            view.visibility = View.VISIBLE
+            view.text = "• $value"
+        }
     }
 
     private fun showToast(message: String) {
@@ -183,14 +310,23 @@ class MainActivity : AppCompatActivity() {
             ScanState.READY -> {
                 readyHint.visibility = View.VISIBLE
                 scanningHint.visibility = View.GONE
+                scanningHint.setText(R.string.hint_scanning)
                 resultPanel.visibility = View.GONE
                 statusText.setText(R.string.status_ready)
             }
             ScanState.SCANNING -> {
                 readyHint.visibility = View.GONE
                 scanningHint.visibility = View.VISIBLE
+                scanningHint.setText(R.string.hint_scanning)
                 resultPanel.visibility = View.GONE
                 statusText.setText(R.string.status_scanning)
+            }
+            ScanState.WAITING -> {
+                readyHint.visibility = View.GONE
+                scanningHint.visibility = View.VISIBLE
+                resultPanel.visibility = View.GONE
+                scanningHint.text = getString(R.string.hint_waiting_ai)
+                statusText.setText(R.string.status_waiting_ai)
             }
             ScanState.RESULT -> {
                 readyHint.visibility = View.GONE

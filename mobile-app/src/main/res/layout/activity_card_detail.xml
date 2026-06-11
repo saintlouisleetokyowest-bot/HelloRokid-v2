@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/surface_background">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/toolbar_background">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/detailToolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/toolbar_background"
+            app:navigationIconTint="@color/rokid_green"
+            app:titleTextColor="@color/rokid_green" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/detailScannedAt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.SectionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_contact" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_name" />
+            <TextView
+                android:id="@+id/detailName"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_title" />
+            <TextView
+                android:id="@+id/detailTitle"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_department" />
+            <TextView
+                android:id="@+id/detailDepartment"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_company" />
+            <TextView
+                android:id="@+id/detailCompany"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_phone" />
+            <TextView
+                android:id="@+id/detailPhone"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_mobile" />
+            <TextView
+                android:id="@+id/detailMobile"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_fax" />
+            <TextView
+                android:id="@+id/detailFax"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_email" />
+            <TextView
+                android:id="@+id/detailEmail"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_address" />
+            <TextView
+                android:id="@+id/detailAddress"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_website" />
+            <TextView
+                android:id="@+id/detailWebsite"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.SectionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_company_intel" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_industry" />
+            <TextView
+                android:id="@+id/detailIndustry"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_company_size" />
+            <TextView
+                android:id="@+id/detailCompanySize"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_revenue" />
+            <TextView
+                android:id="@+id/detailRevenue"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.SectionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_business_intel" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_core_business" />
+            <TextView
+                android:id="@+id/detailCoreBusiness"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_markets" />
+            <TextView
+                android:id="@+id/detailMarkets"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_partners" />
+            <TextView
+                android:id="@+id/detailPartners"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.SectionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp"
+                android:text="@string/section_opportunity" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_opportunities" />
+            <TextView
+                android:id="@+id/detailOpportunities"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_investment" />
+            <TextView
+                android:id="@+id/detailInvestment"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                style="@style/TextAppearance.HelloRokid.DetailLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="@string/label_timing" />
+            <TextView
+                android:id="@+id/detailTiming"
+                style="@style/TextAppearance.HelloRokid.DetailValue"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp" />
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -1,9 +1,45 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+
     <style name="Base.Theme.HelloRokid" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/rokid_green</item>
+        <item name="colorOnPrimary">@color/rokid_black</item>
+        <item name="colorSecondary">@color/rokid_green</item>
+        <item name="android:statusBarColor">@color/toolbar_background</item>
+        <item name="android:navigationBarColor">@color/surface_background</item>
+        <item name="android:windowBackground">@color/surface_background</item>
     </style>
 
     <style name="Theme.HelloRokid" parent="Base.Theme.HelloRokid" />
+
+    <style name="Widget.HelloRokid" parent="" />
+    <style name="TextAppearance.HelloRokid" parent="" />
+
+    <style name="Widget.HelloRokid.PrimaryButton" parent="Widget.Material3.Button">
+        <item name="backgroundTint">@color/rokid_green</item>
+        <item name="android:textColor">@color/rokid_black</item>
+        <item name="iconTint">@color/rokid_black</item>
+    </style>
+
+    <style name="Widget.HelloRokid.SecondaryButton" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="strokeColor">@color/rokid_green</item>
+        <item name="android:textColor">@color/rokid_green</item>
+        <item name="iconTint">@color/rokid_green</item>
+    </style>
+
+    <style name="TextAppearance.HelloRokid.SectionTitle" parent="TextAppearance.HelloRokid">
+        <item name="android:textColor">@color/rokid_green</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.HelloRokid.DetailLabel" parent="TextAppearance.HelloRokid">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="TextAppearance.HelloRokid.DetailValue" parent="TextAppearance.HelloRokid">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
 </resources>
