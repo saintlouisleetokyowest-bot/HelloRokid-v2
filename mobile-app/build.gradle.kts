@@ -19,25 +19,36 @@ android {
         versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        val propertiesFile = rootProject.file("local.properties")
-        val properties = Properties()
-        if (propertiesFile.exists()) {
-            properties.load(FileInputStream(propertiesFile))
-        }
-        buildConfigField(
-            "String",
-            "BACKEND_URL",
-            "\"${properties.getProperty("backend.url", "http://10.0.2.2:8000")}\""
-        )
     }
 
+    val localProperties = Properties().apply {
+        val file = rootProject.file("local.properties")
+        if (file.exists()) {
+            load(FileInputStream(file))
+        }
+    }
+
+    fun backendUrl(key: String, fallback: String): String =
+        localProperties.getProperty(key, fallback).trim().trimEnd('/')
+
     buildTypes {
+        debug {
+            buildConfigField(
+                "String",
+                "BACKEND_URL",
+                "\"${backendUrl("backend.url", "http://10.0.2.2:8000")}\""
+            )
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
+            )
+            buildConfigField(
+                "String",
+                "BACKEND_URL",
+                "\"${backendUrl("backend.url.prod", backendUrl("backend.url", "https://your-app.up.railway.app"))}\""
             )
         }
     }

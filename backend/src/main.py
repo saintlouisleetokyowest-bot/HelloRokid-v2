@@ -33,6 +33,19 @@ GEMINI_API_URL = (
     f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 )
 
+_API_KEY_CONFIGURED = bool(
+    GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here"
+)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    logger.info(
+        "Backend ready (model=%s, api_key_configured=%s)",
+        GEMINI_MODEL,
+        _API_KEY_CONFIGURED,
+    )
+
 
 class ImageAnalysisRequest(BaseModel):
     image: str  # Base64 encoded image
@@ -155,6 +168,11 @@ async def root():
     return {"status": "ok", "message": "Rokid Card Backend API"}
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/api/analyze")
 async def analyze_card(request: ImageAnalysisRequest):
     try:
@@ -169,4 +187,6 @@ async def analyze_card(request: ImageAnalysisRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)

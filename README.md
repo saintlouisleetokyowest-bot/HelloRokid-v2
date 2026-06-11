@@ -90,6 +90,20 @@ lsof -i :8000
 kill <PID>
 ```
 
+### 部署到 Railway（生产环境）
+
+后端已包含 `Dockerfile`、`railway.toml` 和 `/health` 健康检查，可直接部署。
+
+1. 在 [Railway](https://railway.app) 新建项目，从 GitHub 导入本仓库
+2. 将 **Root Directory** 设为 `backend`
+3. 在 Variables 中添加环境变量：
+   - `GEMINI_API_KEY` — 你的 Gemini API Key
+   - `GEMINI_MODEL` — 可选，默认 `gemini-2.5-flash`
+4. 部署完成后，复制 Railway 分配的 HTTPS 域名（如 `https://xxx.up.railway.app`）
+5. 用浏览器访问 `https://xxx.up.railway.app/health`，应返回 `{"status":"ok"}`
+
+Railway 会自动注入 `PORT`，无需手动配置。
+
 ### Android App
 
 使用 Android Studio 打开 **本目录根路径** `HelloRokid-v2`：
@@ -103,30 +117,54 @@ kill <PID>
 
 ### 配置
 
-在项目根目录 `local.properties` 中可配置：
+复制 `local.properties.example` 为 `local.properties`，按需配置后端地址：
 
 ```properties
+# Debug 构建（Android Studio Run / 本地联调）
 backend.url=http://10.0.2.2:8000
+
+# Release 构建（生产测试，连接 Railway）
+backend.url.prod=https://your-app.up.railway.app
 ```
 
-- 模拟器访问本机后端：`http://10.0.2.2:8000`
-- 真机访问电脑后端：改为电脑的局域网 IP，如 `http://192.168.1.100:8000`
+| 场景 | 配置项 | 示例 |
+|------|--------|------|
+| 模拟器访问本机后端 | `backend.url` | `http://10.0.2.2:8000` |
+| 真机访问电脑后端 | `backend.url` | `http://192.168.1.100:8000` |
+| 真机走 Wi-Fi/移动网络访问 Railway | `backend.url.prod` | `https://xxx.up.railway.app` |
 
-后端 `.env` 可选配置：
+- **Debug 构建**使用 `backend.url`（局域网 HTTP）
+- **Release 构建**使用 `backend.url.prod`（Railway HTTPS）
+
+生产场景测试时，请用 **Release** 变体重新编译并安装 `mobile-app`：
+
+```bash
+./gradlew :mobile-app:assembleRelease
+```
+
+或在 Android Studio 中将 Build Variant 切换为 `release` 后安装。
+
+后端本地 `.env` 可选配置：
 
 ```properties
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
+PORT=8000
 ```
 
 ## 使用流程
 
-1. 启动后端服务，确保 `.env` 中已配置 `GEMINI_API_KEY`
-2. 手机端打开 **Rokid Card Manager**，点击「扫描连接眼镜」
-3. 眼镜端打开 **Rokid Glass Scanner**，等待手机连接后按 OK 键扫描名片
-4. 手机端自动接收图片、调用后端分析并保存到本地
-5. 眼镜端 HUD 展示 AI 分析结果；手机端可查看列表、详情
-6. 导出 vCard / CSV 并通过系统分享发送
+**本地开发**：启动本地后端 → Debug 安装手机 App → 配置 `backend.url`
+
+**生产测试**：部署 Railway → 配置 `backend.url.prod` → Release 安装手机 App
+
+通用操作步骤：
+
+1. 手机端打开 **Rokid Card Manager**，点击「扫描连接眼镜」
+2. 眼镜端打开 **Rokid Glass Scanner**，等待手机连接后按 OK 键扫描名片
+3. 手机端自动接收图片、经网络调用后端分析并保存到本地
+4. 眼镜端 HUD 展示 AI 分析结果；手机端可查看列表、详情
+5. 导出 vCard / CSV 并通过系统分享发送
 
 也可在手机端点击「从相册导入」，无需眼镜直接分析本地名片图片。
 

@@ -1,0 +1,9 @@
+## 复制为 local.properties 后按需修改（local.properties 不会提交到 Git）
+
+sdk.dir=/path/to/Android/sdk
+
+# Debug 构建：本地 / 局域网后端（模拟器、真机联调）
+backend.url=http://10.0.2.2:8000
+
+# Release 构建：生产环境后端（Railway 等 HTTPS 地址）
+# backend.url.prod=https://your-app.up.railway.app
