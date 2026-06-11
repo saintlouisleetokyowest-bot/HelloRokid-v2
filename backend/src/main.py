@@ -1,14 +1,19 @@
 import logging
 import os
 import base64
-import json
-import re
-from typing import Dict, Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import requests
+
+try:
+    from src.card_analyzer import CardAnalyzer
+    from src.cloudsway_client import CloudswayClient
+    from src.gemini_client import GeminiClient
+except ModuleNotFoundError:
+    from card_analyzer import CardAnalyzer
+    from cloudsway_client import CloudswayClient
+    from gemini_client import GeminiClient
 
 load_dotenv()
 
@@ -26,24 +31,27 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-# gemini-2.0-flash 已下线，默认改用 gemini-2.5-flash
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_API_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-)
 
-_API_KEY_CONFIGURED = bool(
-    GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here"
-)
+CLOUDSWAY_BASE_PATH = os.getenv("CLOUDSWAY_BASE_PATH", "")
+CLOUDSWAY_ENDPOINT = os.getenv("CLOUDSWAY_ENDPOINT", "")
+CLOUDSWAY_AK = os.getenv("CLOUDSWAY_AK", "")
+
+gemini_client = GeminiClient(GEMINI_API_KEY, GEMINI_MODEL)
+cloudsway_client = CloudswayClient(CLOUDSWAY_BASE_PATH, CLOUDSWAY_ENDPOINT, CLOUDSWAY_AK)
+card_analyzer = CardAnalyzer(gemini_client, cloudsway_client)
+
+_API_KEY_CONFIGURED = gemini_client.configured
+_CLOUDSWAY_CONFIGURED = cloudsway_client.configured
 
 
 @app.on_event("startup")
 async def startup() -> None:
     logger.info(
-        "Backend ready (model=%s, api_key_configured=%s)",
+        "Backend ready (model=%s, gemini=%s, cloudsway=%s)",
         GEMINI_MODEL,
         _API_KEY_CONFIGURED,
+        _CLOUDSWAY_CONFIGURED,
     )
 
 
@@ -51,134 +59,36 @@ class ImageAnalysisRequest(BaseModel):
     image: str  # Base64 encoded image
 
 
-CARD_RESPONSE_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "name": {"type": "STRING"},
-        "title": {"type": "STRING"},
-        "department": {"type": "STRING"},
-        "company": {"type": "STRING"},
-        "phone": {"type": "STRING"},
-        "mobile": {"type": "STRING"},
-        "fax": {"type": "STRING"},
-        "email": {"type": "STRING"},
-        "address": {"type": "STRING"},
-        "website": {"type": "STRING"},
-        "industry": {"type": "STRING"},
-        "companySize": {"type": "STRING"},
-        "revenue": {"type": "STRING"},
-        "coreBusiness": {"type": "STRING"},
-        "markets": {"type": "STRING"},
-        "partners": {"type": "STRING"},
-        "opportunities": {"type": "STRING"},
-        "investmentReadiness": {"type": "STRING"},
-        "timing": {"type": "STRING"},
-    },
-}
-
-
-def parse_json_response(text: str) -> Dict[str, Any]:
-    cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-
-    match = re.search(r"\{[\s\S]*\}", cleaned)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError as e:
-            logger.error("JSON parse failed, raw response: %s", cleaned[:800])
-            raise ValueError(f"Gemini 返回的 JSON 无法解析: {e}") from e
-
-    logger.error("No JSON object in response: %s", cleaned[:800])
-    raise ValueError("Gemini 未返回有效 JSON")
-
-
-def extract_response_text(result: Dict[str, Any]) -> str:
-    candidates = result.get("candidates") or []
-    if not candidates:
-        raise ValueError("No response from Gemini")
-
-    parts = candidates[0].get("content", {}).get("parts") or []
-    texts = [p["text"] for p in parts if isinstance(p, dict) and "text" in p]
-    if not texts:
-        raise ValueError("Gemini response has no text parts")
-    return "\n".join(texts)
-
-
-def analyze_with_gemini(image_data: bytes) -> Dict[str, Any]:
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        raise ValueError(
-            "未配置 GEMINI_API_KEY。请到 https://aistudio.google.com/apikey 获取，"
-            "格式通常以 AIza 开头"
-        )
-
-    base64_image = base64.b64encode(image_data).decode('utf-8')
-
-    prompt = (
-        "Analyze this business card image. Extract visible text and infer missing fields. "
-        "Use empty string for unknown fields. Escape quotes inside string values properly. "
-        "Field semantics: title=job title; department=organizational unit; "
-        "phone=landline or main office number; mobile=cell phone; fax=fax number."
-    )
-
-    request_data = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": base64_image
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 2048,
-            "responseMimeType": "application/json",
-            "responseSchema": CARD_RESPONSE_SCHEMA,
-        }
-    }
-
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(GEMINI_API_URL, json=request_data, headers=headers, timeout=60)
-    if not response.ok:
-        detail = response.text[:500]
-        if response.status_code in (401, 403):
-            raise ValueError(
-                f"Gemini API Key 无效或无权访问 (HTTP {response.status_code})。"
-                f"请确认 .env 中的 Key 来自 Google AI Studio (AIza... 开头)。详情: {detail}"
-            )
-        raise ValueError(f"Gemini 请求失败 HTTP {response.status_code}: {detail}")
-
-    result = response.json()
-    text = extract_response_text(result)
-    return parse_json_response(text)
-
-
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Rokid Card Backend API"}
+    return {
+        "status": "ok",
+        "message": "Rokid Card Backend API",
+        "pipeline": "ocr -> cloudsway -> gemini-enrich",
+        "cloudsway_configured": _CLOUDSWAY_CONFIGURED,
+    }
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "gemini_configured": _API_KEY_CONFIGURED,
+        "cloudsway_configured": _CLOUDSWAY_CONFIGURED,
+    }
 
 
 @app.post("/api/analyze")
 async def analyze_card(request: ImageAnalysisRequest):
     try:
         image_data = base64.b64decode(request.image)
-        logger.info("Analyzing image: %d bytes, model=%s", len(image_data), GEMINI_MODEL)
-        result = analyze_with_gemini(image_data)
+        logger.info(
+            "Analyzing image: %d bytes, model=%s, cloudsway=%s",
+            len(image_data),
+            GEMINI_MODEL,
+            _CLOUDSWAY_CONFIGURED,
+        )
+        result = card_analyzer.analyze(image_data)
         return result
     except Exception as e:
         logger.error("Analyze failed: %s", e)

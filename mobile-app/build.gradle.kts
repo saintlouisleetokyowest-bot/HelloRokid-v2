@@ -40,6 +40,8 @@ android {
             )
         }
         release {
+            // 内测阶段复用 debug 签名，便于直接 Run/安装 Release 变体
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

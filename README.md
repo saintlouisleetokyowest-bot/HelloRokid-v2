@@ -142,7 +142,12 @@ backend.url.prod=https://your-app.up.railway.app
 ./gradlew :mobile-app:assembleRelease
 ```
 
-或在 Android Studio 中将 Build Variant 切换为 `release` 后安装。
+或在 Android Studio 中：
+
+1. 打开 **Build Variants**，将 `mobile-app` 切换为 `release`
+2. Sync Gradle 后直接 Run 安装到手机
+
+> **Release 签名说明**：当前 `release` 构建复用 `debug` 签名，便于内测阶段直接安装，无需单独配置 keystore。若出现 *"apk cannot be signed"* 错误，Sync 项目后重试即可。上架 Google Play 前需替换为正式签名配置。
 
 后端本地 `.env` 可选配置：
 
@@ -156,7 +161,7 @@ PORT=8000
 
 **本地开发**：启动本地后端 → Debug 安装手机 App → 配置 `backend.url`
 
-**生产测试**：部署 Railway → 配置 `backend.url.prod` → Release 安装手机 App
+**生产测试**：部署 Railway → 配置 `backend.url.prod` → Release 安装手机 App（眼镜仍用 Debug 即可，仅手机需连云端后端）
 
 通用操作步骤：
 
@@ -187,6 +192,8 @@ PORT=8000
 - [x] Room 数据库与名片列表 / 详情
 - [x] vCard / CSV 导出
 - [x] 手机端相册图片导入
+- [x] Railway 生产部署（Dockerfile + 健康检查）
+- [x] 手机端 Debug/Release 分环境后端地址
 - [ ] 眼镜端接收手机回传的 AI 结果（BLE 下行）
 - [ ] 离线降级（无网时先存图，有网再分析）
 - [ ] Event Mode / 智能去重
