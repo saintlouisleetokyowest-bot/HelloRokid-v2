@@ -22,10 +22,7 @@ object ImagePostProcessor {
         val contrast = estimateContrast(bitmap)
         Log.d(TAG, "before: brightness=$brightness contrast=$contrast")
 
-        if (contrast < 8) {
-            return bitmap
-        }
-        if (brightness >= BRIGHT_THRESHOLD) {
+        if (brightness >= BRIGHT_THRESHOLD && contrast < 8) {
             return bitmap
         }
 

@@ -13,6 +13,7 @@ import com.example.hellorokid.mobile.data.CardRepository
 import com.example.hellorokid.mobile.export.CardExportHelper
 import com.example.hellorokid.mobile.export.ImageSaveHelper
 import com.example.hellorokid.shared.data.BusinessCard
+import com.example.hellorokid.shared.image.ImagePostProcessor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -90,21 +91,25 @@ class MainViewModel(
             _connectionState.value = ConnectionState.RECEIVING
             Log.i("MainViewModel", "Received JPEG: ${jpegBytes.size} bytes, ${bitmap.width}x${bitmap.height}")
 
-            launch { saveToGalleryAsync(jpegBytes) }
+            launch { saveEnhancedToGalleryAsync(bitmap) }
 
             analyzeStaged(
-                jpegBytes = jpegBytes,
+                ocrBitmap = bitmap,
                 generation = generation,
                 syncToGlasses = true
             )
         }
     }
 
-    private suspend fun saveToGalleryAsync(jpegBytes: ByteArray) {
-        val saveResult = ImageSaveHelper.saveJpegToGallery(application, jpegBytes)
+    private suspend fun saveEnhancedToGalleryAsync(source: Bitmap) {
+        val enhanced = ImagePostProcessor.enhanceForOcr(source)
+        val saveResult = ImageSaveHelper.saveBitmapToGallery(application, enhanced)
+        if (enhanced !== source) {
+            enhanced.recycle()
+        }
         saveResult.fold(
             onSuccess = { path ->
-                _message.value = "图片已保存到相册（$path，${jpegBytes.size / 1024}KB），正在识别…"
+                _message.value = "图片已保存到相册（$path），正在识别…"
             },
             onFailure = { error ->
                 Log.w("MainViewModel", "Gallery save failed: ${error.message}")
@@ -113,22 +118,26 @@ class MainViewModel(
     }
 
     private suspend fun analyzeStaged(
-        jpegBytes: ByteArray,
+        ocrBitmap: Bitmap,
         generation: Int,
         syncToGlasses: Boolean
     ) {
         _connectionState.value = ConnectionState.ANALYZING
 
-        val extractResult = backendApi.extractBusinessCard(jpegBytes)
+        val extractResult = backendApi.extractBusinessCard(ocrBitmap)
         if (generation != scanGeneration.get()) return
 
         extractResult.fold(
             onSuccess = { contact ->
                 if (syncToGlasses) {
-                    bleClient.sendBusinessCardResult(contact)
+                    val sendResult = bleClient.sendBusinessCardResult(contact)
+                    sendResult.onFailure { error ->
+                        Log.e("MainViewModel", "First sync to glasses failed: ${error.message}")
+                        _message.value = "联系信息同步眼镜失败: ${error.message}"
+                    }
                 }
 
-                val displayName = contact.name.ifBlank { "新名片" }
+                val displayName = contact.name.ifBlank { contact.company.ifBlank { "新名片" } }
                 _message.value = "已识别 $displayName，正在补充情报…"
 
                 val cardId = repository.insert(contact)
@@ -161,15 +170,18 @@ class MainViewModel(
             onSuccess = { fullCard ->
                 repository.updateFromBusinessCard(cardId, fullCard)
                 if (syncToGlasses) {
-                    bleClient.sendBusinessCardResult(fullCard)
+                    val sendResult = bleClient.sendBusinessCardResult(fullCard)
+                    sendResult.onFailure { error ->
+                        Log.w("MainViewModel", "Intel sync to glasses failed: ${error.message}")
+                    }
                 }
                 _connectionState.value = ConnectionState.CONNECTED
-                val name = fullCard.name.ifBlank { "新名片" }
+                val name = fullCard.name.ifBlank { fullCard.company.ifBlank { "新名片" } }
                 _message.value = "已保存 $name，情报已同步到眼镜"
             },
             onFailure = { error ->
                 _connectionState.value = ConnectionState.CONNECTED
-                val name = contact.name.ifBlank { "新名片" }
+                val name = contact.name.ifBlank { contact.company.ifBlank { "新名片" } }
                 val msg = error.message ?: "未知错误"
                 _message.value = "已保存 $name（情报补充失败: $msg）"
                 Log.w("MainViewModel", "Enrich failed, contact already saved: $msg")
@@ -211,7 +223,7 @@ class MainViewModel(
 
             extractResult.fold(
                 onSuccess = { contact ->
-                    val displayName = contact.name.ifBlank { "新名片" }
+                    val displayName = contact.name.ifBlank { contact.company.ifBlank { "新名片" } }
                     _message.value = "已识别 $displayName，正在补充情报…"
 
                     val cardId = repository.insert(contact)

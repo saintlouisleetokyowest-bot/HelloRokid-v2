@@ -293,13 +293,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateResultUI(card: BusinessCard, scrollToTop: Boolean = true) {
-        setField(personNameText, card.name)
-        setField(personTitleText, card.title)
+        val partial = isPartialResult(card)
+        setField(personNameText, card.name, partial)
+        setField(personTitleText, card.title, partial)
         val contact = listOf(card.phone, card.mobile, card.fax, card.email)
             .filter { it.isNotBlank() }
             .joinToString(" / ")
-        setField(personAuthorityText, contact)
-        setField(companyNameText, card.company)
+        setField(personAuthorityText, contact, partial && contact.isBlank())
+        setField(companyNameText, card.company, partial)
         setField(companyIndustryText, card.industry)
         setField(companySizeText, card.companySize)
         setField(companyRevenueText, card.revenue)
@@ -314,12 +315,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setField(view: TextView, value: String) {
-        if (value.isBlank()) {
-            view.visibility = View.GONE
-        } else {
+    private fun setField(view: TextView, value: String, showPending: Boolean = false) {
+        if (value.isNotBlank()) {
             view.visibility = View.VISIBLE
             view.text = "• $value"
+        } else if (showPending) {
+            view.visibility = View.VISIBLE
+            view.text = "• …"
+        } else {
+            view.visibility = View.GONE
         }
     }
 

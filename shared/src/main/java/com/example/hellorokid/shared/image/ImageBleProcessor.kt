@@ -17,8 +17,9 @@ import java.io.ByteArrayOutputStream
 object ImageBleProcessor {
 
     private const val TAG = "ImageBleProcessor"
-    private const val MAX_WIDTH = 800
-    private const val JPEG_QUALITY = 70
+    private const val MAX_WIDTH = 1024
+    private const val JPEG_QUALITY = 85
+    private const val MIN_BRIGHTNESS_TO_BOOST = 20
     /** Rokid 横拍 JPEG 转竖直握持：+90° 会上下颠倒，需 +270°（等同逆时针 90°） */
     private const val ROKID_LANDSCAPE_TO_PORTRAIT = 270f
 
@@ -50,12 +51,6 @@ object ImageBleProcessor {
             bitmap = brightened
         }
 
-        val gray = toGrayscale(bitmap)
-        if (gray !== bitmap) {
-            bitmap.recycle()
-            bitmap = gray
-        }
-
         val scaled = scaleToMaxWidth(bitmap, MAX_WIDTH)
         if (scaled !== bitmap) {
             bitmap.recycle()
@@ -69,7 +64,7 @@ object ImageBleProcessor {
 
         Log.i(
             TAG,
-            "BLE image: ${jpegBytes.size}B -> ${output.size}B (${w}x$h gray q$JPEG_QUALITY)"
+            "BLE image: ${jpegBytes.size}B -> ${output.size}B (${w}x$h color q$JPEG_QUALITY)"
         )
 
         return ProcessResult(
@@ -111,10 +106,11 @@ object ImageBleProcessor {
 
     private fun boostBrightness(bitmap: Bitmap): Bitmap {
         val brightness = estimateBrightness(bitmap)
-        if (brightness >= 100) return bitmap
+        // 过暗时强行拉升容易噪点/发黑，交给手机端 OCR 增强处理
+        if (brightness < MIN_BRIGHTNESS_TO_BOOST || brightness >= 100) return bitmap
 
-        val scale = (200f / brightness.coerceAtLeast(25f)).coerceIn(1.3f, 3.0f)
-        val offset = 40f
+        val scale = (160f / brightness.coerceAtLeast(30f)).coerceIn(1.2f, 2.0f)
+        val offset = 25f
         val matrix = ColorMatrix(
             floatArrayOf(
                 scale, 0f, 0f, 0f, offset,
@@ -123,11 +119,6 @@ object ImageBleProcessor {
                 0f, 0f, 0f, 1f, 0f
             )
         )
-        return applyMatrix(bitmap, matrix)
-    }
-
-    private fun toGrayscale(bitmap: Bitmap): Bitmap {
-        val matrix = ColorMatrix().apply { setSaturation(0f) }
         return applyMatrix(bitmap, matrix)
     }
 
