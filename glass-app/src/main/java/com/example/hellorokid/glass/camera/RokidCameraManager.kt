@@ -34,9 +34,10 @@ class RokidCameraManager(private val context: Context) {
         private const val TAG = "RokidCameraManager"
         private const val CAPTURE_TIMEOUT_MS = 12_000L
         private const val MAX_ATTEMPTS = 2
-        private const val MIN_PREVIEW_FRAMES = 6
-        private const val MAX_WARMUP_FRAMES = 14
-        private const val WARMUP_TIMEOUT_MS = 2_500L
+        private const val MIN_PREVIEW_FRAMES = 9
+        private const val MAX_WARMUP_FRAMES = 16
+        private const val WARMUP_TIMEOUT_MS = 3_000L
+        private const val NEAR_FOCUS_WAIT_MS = 900L
     }
 
     private var cameraDevice: CameraDevice? = null
@@ -241,7 +242,7 @@ class RokidCameraManager(private val context: Context) {
             stillTriggered = true
             warmupTimeoutRunnable?.let { handler.removeCallbacks(it) }
             Log.i(TAG, "Triggering still capture: $reason (after $previewFrames preview frames)")
-            triggerStillCapture(session, photoResult)
+            triggerNearFocusThenStill(session, characteristics, photoResult)
         }
 
         val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
@@ -319,24 +320,112 @@ class RokidCameraManager(private val context: Context) {
         }
     }
 
+    private fun triggerNearFocusThenStill(
+        session: CameraCaptureSession,
+        characteristics: CameraCharacteristics,
+        photoResult: CompletableDeferred<ByteArray>
+    ) {
+        val handler = backgroundHandler ?: return
+        try {
+            session.stopRepeating()
+            session.abortCaptures()
+        } catch (e: Exception) {
+            Log.w(TAG, "Stop repeating before near focus", e)
+        }
+
+        val minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)
+        Log.d(TAG, "Min focus distance: ${minFocusDistance ?: "unknown"} diopters")
+
+        val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
+        val supportsMacro = afModes.contains(CaptureRequest.CONTROL_AF_MODE_MACRO)
+        val supportsContinuousAf = afModes.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+        Log.d(TAG, "AF modes: macro=$supportsMacro continuous=$supportsContinuousAf")
+
+        var stillTriggered = false
+
+        fun fireStill(reason: String) {
+            if (stillTriggered || photoResult.isCompleted) return
+            stillTriggered = true
+            handler.removeCallbacksAndMessages(null)
+            Log.i(TAG, "Near focus complete -> still: $reason")
+            triggerStillCapture(session, characteristics, photoResult)
+        }
+
+        val afBuilder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+            addTarget(imageReader!!.surface)
+            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+            when {
+                supportsMacro -> {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_MACRO)
+                }
+                supportsContinuousAf -> {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                }
+                afModes.contains(CaptureRequest.CONTROL_AF_MODE_AUTO) -> {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+                }
+            }
+            set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
+        }
+
+        handler.postDelayed({ fireStill("near focus timeout ${NEAR_FOCUS_WAIT_MS}ms") }, NEAR_FOCUS_WAIT_MS)
+
+        try {
+            session.capture(
+                afBuilder.build(),
+                object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: TotalCaptureResult
+                    ) {
+                        val afState = result.get(CaptureResult.CONTROL_AF_STATE)
+                        Log.d(TAG, "Near focus AF pulse: afState=$afState")
+                        val focused = afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED
+                            || afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
+                        if (focused) {
+                            handler.postDelayed({ fireStill("AF focused") }, 120)
+                        }
+                    }
+
+                    override fun onCaptureFailed(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        failure: android.hardware.camera2.CaptureFailure
+                    ) {
+                        Log.w(TAG, "Near focus AF pulse failed: ${failure.reason}")
+                        fireStill("AF pulse failed fallback")
+                    }
+                },
+                handler
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Near focus AF pulse error, fallback to still", e)
+            fireStill("AF pulse error fallback")
+        }
+    }
+
     private fun triggerStillCapture(
         session: CameraCaptureSession,
+        characteristics: CameraCharacteristics,
         photoResult: CompletableDeferred<ByteArray>
     ) {
         try {
-            try {
-                session.stopRepeating()
-                session.abortCaptures()
-            } catch (e: Exception) {
-                Log.w(TAG, "Stop repeating before still capture", e)
-            }
-
             awaitingStillJpeg = true
+
+            val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
+            val supportsMacro = afModes.contains(CaptureRequest.CONTROL_AF_MODE_MACRO)
 
             val builder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(imageReader!!.surface)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                if (supportsMacro) {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_MACRO)
+                } else if (afModes.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)) {
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                }
                 set(CaptureRequest.JPEG_QUALITY, 92.toByte())
             }
 
@@ -372,13 +461,13 @@ class RokidCameraManager(private val context: Context) {
         }
     }
 
-    /** 优先 1280 以内分辨率：画质够用且预热/传图更快 */
+    /** 优先 1920×1080：小字识别需要更高分辨率，仍设上限避免过大 */
     private fun chooseJpegSize(sizes: Array<Size>): Size {
-        if (sizes.isEmpty()) return Size(1280, 720)
+        if (sizes.isEmpty()) return Size(1920, 1080)
         val sorted = sizes.sortedByDescending { it.width * it.height }
-        return sorted.firstOrNull { it.width <= 1280 && it.height <= 960 }
-            ?: sorted.firstOrNull { it.width <= 1920 && it.height <= 1080 }
-            ?: sorted.last()
+        return sorted.firstOrNull { it.width <= 1920 && it.height <= 1080 }
+            ?: sorted.firstOrNull { it.width <= 2560 && it.height <= 1440 }
+            ?: sorted.first()
     }
 
     private fun isValidJpeg(bytes: ByteArray): Boolean {

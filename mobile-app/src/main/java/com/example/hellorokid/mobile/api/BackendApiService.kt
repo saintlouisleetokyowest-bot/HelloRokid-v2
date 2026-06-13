@@ -50,14 +50,18 @@ class BackendApiService {
         }
     }
 
-    suspend fun extractBusinessCard(bitmap: Bitmap): Result<BusinessCard> = withContext(Dispatchers.IO) {
+    suspend fun extractBusinessCard(bitmap: Bitmap, enhance: Boolean = true): Result<BusinessCard> =
+        withContext(Dispatchers.IO) {
         try {
-            val enhanced = ImagePostProcessor.enhanceForOcr(bitmap)
-            val base64Image = bitmapToBase64(enhanced)
-            if (enhanced !== bitmap) {
-                enhanced.recycle()
+            val source = if (enhance) ImagePostProcessor.enhanceForOcr(bitmap) else bitmap
+            val created = enhance && source !== bitmap
+            try {
+                postExtract(bitmapToBase64(source))
+            } finally {
+                if (created) {
+                    source.recycle()
+                }
             }
-            postExtract(base64Image)
         } catch (e: Exception) {
             Log.e(TAG, "Extract failed", e)
             Result.failure(e)

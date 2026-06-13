@@ -16,6 +16,7 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
 import android.os.ParcelUuid
+import android.os.SystemClock
 import android.util.Log
 import com.example.hellorokid.shared.data.BusinessCard
 import com.example.hellorokid.shared.data.BusinessCardJson
@@ -37,6 +38,11 @@ class GlassBleServer(private val context: Context) {
     companion object {
         private const val TAG = "GlassBleServer"
         private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        private const val PACING_MIN_MS = 12L
+        private const val PACING_MAX_MS = 30L
+        private const val PACING_STEP_DOWN_MS = 1L
+        private const val PACING_STEP_UP_MS = 5L
+        private const val PACING_SUCCESS_STREAK = 8
     }
 
     interface Listener {
@@ -65,8 +71,9 @@ class GlassBleServer(private val context: Context) {
     @Volatile
     private var negotiatedMtu = 23
 
-    /** 每包发送后的固定间隔（红米/MIUI 需要更慢，避免 notify 队列溢出丢包） */
-    private val packetPacingMs = 30L
+    /** 自适应发包间隔：稳定后降至 12ms，丢包重试时回升 */
+    private var currentPacingMs = PACING_MAX_MS
+    private var notifySuccessStreak = 0
     private val notifyMaxRetries = 8
 
     private val advertiseCallback = object : AdvertiseCallback() {
@@ -129,7 +136,11 @@ class GlassBleServer(private val context: Context) {
 
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
             negotiatedMtu = mtu
-            Log.i(TAG, "MTU negotiated: $mtu, chunkPayload=${effectivePayloadSize()}")
+            val payload = effectivePayloadSize()
+            Log.i(TAG, "MTU negotiated: $mtu, chunkPayload=$payload")
+            if (mtu < 100) {
+                Log.w(TAG, "MTU is low ($mtu); image transfer will be slow")
+            }
         }
 
         @SuppressLint("MissingPermission")
@@ -231,6 +242,8 @@ class GlassBleServer(private val context: Context) {
             }
 
             val payloadSize = effectivePayloadSize()
+            resetTransferPacing()
+            val transferStartMs = SystemClock.elapsedRealtime()
             Log.i(TAG, "Sending JPEG: ${jpegBytes.size} bytes, mtu=$negotiatedMtu, payload=$payloadSize")
 
             var chunkCount = 0
@@ -252,7 +265,11 @@ class GlassBleServer(private val context: Context) {
                 sendPacketWithPacing(device, BleImageTransfer.encodeEnd())
             }
 
-            Log.i(TAG, "Image sent: $chunkCount chunks")
+            val elapsedMs = SystemClock.elapsedRealtime() - transferStartMs
+            Log.i(
+                TAG,
+                "Image sent: $chunkCount chunks in ${elapsedMs}ms, finalPacing=${currentPacingMs}ms"
+            )
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "sendJpeg failed", e)
@@ -350,17 +367,43 @@ class GlassBleServer(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun sendPacket(device: BluetoothDevice, data: ByteArray) {
+    private suspend fun sendPacket(device: BluetoothDevice, data: ByteArray): Int {
         val characteristic = imageCharacteristic
             ?: throw IllegalStateException("Image characteristic not ready")
         repeat(notifyMaxRetries) { attempt ->
             characteristic.value = data
             val ok = gattServer?.notifyCharacteristicChanged(device, characteristic, false) ?: false
-            if (ok) return
+            if (ok) return attempt
             Log.w(TAG, "notifyCharacteristicChanged failed, retry ${attempt + 1}/$notifyMaxRetries")
             delay(15L * (attempt + 1))
         }
         throw IllegalStateException("notifyCharacteristicChanged failed after $notifyMaxRetries retries")
+    }
+
+    private fun resetTransferPacing() {
+        currentPacingMs = PACING_MAX_MS
+        notifySuccessStreak = 0
+    }
+
+    private fun updatePacingAfterPacket(notifyRetries: Int) {
+        if (notifyRetries > 0) {
+            notifySuccessStreak = 0
+            currentPacingMs = minOf(
+                PACING_MAX_MS,
+                currentPacingMs + PACING_STEP_UP_MS * notifyRetries
+            )
+            Log.d(TAG, "Pacing increased to ${currentPacingMs}ms after $notifyRetries retries")
+            return
+        }
+        notifySuccessStreak++
+        if (notifySuccessStreak >= PACING_SUCCESS_STREAK) {
+            notifySuccessStreak = 0
+            val before = currentPacingMs
+            currentPacingMs = maxOf(PACING_MIN_MS, currentPacingMs - PACING_STEP_DOWN_MS)
+            if (currentPacingMs != before) {
+                Log.d(TAG, "Pacing decreased to ${currentPacingMs}ms")
+            }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -376,9 +419,10 @@ class GlassBleServer(private val context: Context) {
         return minOf(BleImageTransfer.MAX_PAYLOAD_SIZE, negotiatedMtu - 6).coerceAtLeast(1)
     }
 
-    /** 固定节奏发包，给手机 GATT 栈留出处理时间 */
+    /** 自适应节奏发包：稳定后加快，重试失败时放慢 */
     private suspend fun sendPacketWithPacing(device: BluetoothDevice, data: ByteArray) {
-        sendPacket(device, data)
-        delay(packetPacingMs)
+        val notifyRetries = sendPacket(device, data)
+        updatePacingAfterPacket(notifyRetries)
+        delay(currentPacingMs)
     }
 }

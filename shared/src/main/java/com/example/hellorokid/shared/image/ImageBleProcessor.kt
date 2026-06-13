@@ -13,13 +13,13 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
 /**
- * BLE 传图前处理：纠正方向、转灰度、适度缩小压缩（单次 JPEG 编码，避免二次损伤）。
+ * BLE 传图前处理：纠正方向、缩小、转灰度、压缩（先缩放再灰度，减少 CPU 与体积）。
  */
 object ImageBleProcessor {
 
     private const val TAG = "ImageBleProcessor"
-    private const val MAX_WIDTH = 960
-    private const val JPEG_QUALITY = 75
+    private const val MAX_WIDTH = 1280
+    private const val JPEG_QUALITY = 82
     /** Rokid 横拍 JPEG 转竖直握持：+270°（等同逆时针 90°） */
     private const val ROKID_LANDSCAPE_TO_PORTRAIT = 270f
 
@@ -44,16 +44,16 @@ object ImageBleProcessor {
             Log.d(TAG, "Landscape -> portrait: rotated ${ROKID_LANDSCAPE_TO_PORTRAIT}°")
         }
 
-        val gray = toGrayscale(bitmap)
-        if (gray !== bitmap) {
-            bitmap.recycle()
-            bitmap = gray
-        }
-
         val scaled = scaleToMaxWidth(bitmap, MAX_WIDTH)
         if (scaled !== bitmap) {
             bitmap.recycle()
             bitmap = scaled
+        }
+
+        val gray = toGrayscale(bitmap)
+        if (gray !== bitmap) {
+            bitmap.recycle()
+            bitmap = gray
         }
 
         val output = compressJpeg(bitmap, JPEG_QUALITY)
@@ -76,7 +76,20 @@ object ImageBleProcessor {
     }
 
     private fun decodeWithExifRotation(jpegBytes: ByteArray): Bitmap? {
-        var bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val sampleSize = maxOf(
+            1,
+            minOf(bounds.outWidth, bounds.outHeight) / MAX_WIDTH
+        )
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        var bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size, options) ?: return null
+
         val exif = ExifInterface(ByteArrayInputStream(jpegBytes))
         val orientation = exif.getAttributeInt(
             ExifInterface.TAG_ORIENTATION,

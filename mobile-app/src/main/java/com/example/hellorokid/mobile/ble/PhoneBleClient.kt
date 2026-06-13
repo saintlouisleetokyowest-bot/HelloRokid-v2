@@ -104,7 +104,7 @@ class PhoneBleClient(context: Context) {
     private val scanTimeoutRunnable = Runnable {
         if (isScanning) {
             stopScan()
-            notifyError("扫描超时，请确认眼镜端 App 已打开且蓝牙已开启")
+            notifyError("扫描超时，请确认眼镜端 RokidCard App 已打开且蓝牙已开启")
         }
     }
 
@@ -123,13 +123,18 @@ class PhoneBleClient(context: Context) {
             val name = device.name ?: result.scanRecord?.deviceName ?: ""
             Log.d(TAG, "Found device: name=$name address=${device.address}")
 
-            val matchesPrefix = name.startsWith(BleProtocol.DEVICE_NAME_PREFIX)
             val hasService = result.scanRecord?.serviceUuids?.any {
                 it.uuid.toString().equals(BleProtocol.SERVICE_UUID, ignoreCase = true)
             } == true
+            val matchesAppName = name.startsWith(BleProtocol.DEVICE_NAME_PREFIX)
 
-            if (!matchesPrefix && !hasService) return
+            // 必须命中自定义 Service UUID，或 HelloRokCard 广播名；不能仅凭 RokidCard 前缀连接系统 BLE
+            if (!hasService && !matchesAppName) return
 
+            Log.i(
+                TAG,
+                "Target glass found: name=$name address=${device.address} hasService=$hasService"
+            )
             stopScan()
             connect(device)
         }
@@ -170,7 +175,12 @@ class PhoneBleClient(context: Context) {
 
             val service = gatt.getService(UUID.fromString(BleProtocol.SERVICE_UUID))
             if (service == null) {
-                notifyError("未找到 Rokid BLE 服务")
+                val discovered = gatt.services.joinToString { it.uuid.toString() }
+                Log.e(TAG, "Custom service missing. Discovered GATT services: $discovered")
+                notifyError(
+                    "连上了 Rokid 系统蓝牙（非名片 App）。请先打开眼镜端 RokidCard App，" +
+                        "并确认 Rokid AI App 未占用蓝牙连接"
+                )
                 disconnect()
                 return
             }

@@ -10,7 +10,8 @@ object BleProtocol {
     /** 手机 → 眼镜：AI 解析结果（JSON 分片写入） */
     const val CHARACTERISTIC_RESULT_UUID = "0000ff03-0000-1000-8000-00805f9b34fb"
 
-    const val DEVICE_NAME_PREFIX = "RokidCard"
+    /** 与 Rokid 系统自带「RokidCard-0:00」区分，避免手机误连系统 BLE */
+    const val DEVICE_NAME_PREFIX = "HelloRokCard"
     const val MAX_CHUNK_SIZE = 512
     const val IMAGE_FORMAT_JPEG = "image/jpeg"
 }

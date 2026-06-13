@@ -14,6 +14,7 @@ import com.example.hellorokid.mobile.export.CardExportHelper
 import com.example.hellorokid.mobile.export.ImageSaveHelper
 import com.example.hellorokid.shared.data.BusinessCard
 import com.example.hellorokid.shared.image.ImagePostProcessor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
 
 class MainViewModel(
@@ -91,22 +93,30 @@ class MainViewModel(
             _connectionState.value = ConnectionState.RECEIVING
             Log.i("MainViewModel", "Received JPEG: ${jpegBytes.size} bytes, ${bitmap.width}x${bitmap.height}")
 
-            launch { saveEnhancedToGalleryAsync(bitmap) }
+            val enhanced = withContext(Dispatchers.Default) {
+                ImagePostProcessor.enhanceForOcr(bitmap)
+            }
+            val createdEnhanced = enhanced !== bitmap
+            val galleryJob = launch { saveEnhancedToGalleryAsync(enhanced) }
 
-            analyzeStaged(
-                ocrBitmap = bitmap,
-                generation = generation,
-                syncToGlasses = true
-            )
+            try {
+                analyzeStaged(
+                    ocrBitmap = enhanced,
+                    generation = generation,
+                    syncToGlasses = true,
+                    enhanceForOcr = false
+                )
+            } finally {
+                galleryJob.join()
+                if (createdEnhanced) {
+                    enhanced.recycle()
+                }
+            }
         }
     }
 
-    private suspend fun saveEnhancedToGalleryAsync(source: Bitmap) {
-        val enhanced = ImagePostProcessor.enhanceForOcr(source)
+    private suspend fun saveEnhancedToGalleryAsync(enhanced: Bitmap) {
         val saveResult = ImageSaveHelper.saveBitmapToGallery(application, enhanced)
-        if (enhanced !== source) {
-            enhanced.recycle()
-        }
         saveResult.fold(
             onSuccess = { path ->
                 _message.value = "图片已保存到相册（$path），正在识别…"
@@ -120,11 +130,12 @@ class MainViewModel(
     private suspend fun analyzeStaged(
         ocrBitmap: Bitmap,
         generation: Int,
-        syncToGlasses: Boolean
+        syncToGlasses: Boolean,
+        enhanceForOcr: Boolean = true
     ) {
         _connectionState.value = ConnectionState.ANALYZING
 
-        val extractResult = backendApi.extractBusinessCard(ocrBitmap)
+        val extractResult = backendApi.extractBusinessCard(ocrBitmap, enhance = enhanceForOcr)
         if (generation != scanGeneration.get()) return
 
         extractResult.fold(
