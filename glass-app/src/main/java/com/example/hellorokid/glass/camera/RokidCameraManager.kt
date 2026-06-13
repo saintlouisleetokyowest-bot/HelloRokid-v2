@@ -9,10 +9,12 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import androidx.annotation.RequiresPermission
@@ -23,15 +25,18 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
- * Rokid 眼镜相机：对齐 v1 的最简 Camera2 单次拍照（不做 AE 预捕获，避免 Rokid 回调卡死）。
- * 旋转、提亮、灰度压缩在 [com.example.hellorokid.shared.image.ImageBleProcessor] 中处理。
+ * Rokid 眼镜相机：Camera2 完整采集管线（preview 预热 → AE/AF 收敛 → 静态拍照）。
+ * 后处理（旋转、灰度、压缩）在 [com.example.hellorokid.shared.image.ImageBleProcessor]。
  */
 class RokidCameraManager(private val context: Context) {
 
     companion object {
         private const val TAG = "RokidCameraManager"
-        private const val CAPTURE_TIMEOUT_MS = 10_000L
+        private const val CAPTURE_TIMEOUT_MS = 12_000L
         private const val MAX_ATTEMPTS = 2
+        private const val MIN_PREVIEW_FRAMES = 6
+        private const val MAX_WARMUP_FRAMES = 14
+        private const val WARMUP_TIMEOUT_MS = 2_500L
     }
 
     private var cameraDevice: CameraDevice? = null
@@ -39,6 +44,9 @@ class RokidCameraManager(private val context: Context) {
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
     private var imageReader: ImageReader? = null
+    private var warmupTimeoutRunnable: Runnable? = null
+    @Volatile
+    private var awaitingStillJpeg = false
 
     @RequiresPermission(Manifest.permission.CAMERA)
     suspend fun capturePhotoJpeg(): Result<ByteArray> = withContext(Dispatchers.IO) {
@@ -51,6 +59,7 @@ class RokidCameraManager(private val context: Context) {
             }
             val error = result.exceptionOrNull()
             val timedOut = error?.message?.contains("Timed out", ignoreCase = true) == true
+                || error?.message?.contains("超时", ignoreCase = true) == true
             if (!timedOut || attemptNo >= MAX_ATTEMPTS) {
                 return@withContext Result.failure(
                     if (timedOut) Exception("拍照超时，请重试")
@@ -79,8 +88,6 @@ class RokidCameraManager(private val context: Context) {
                 return Result.failure(Exception("未找到相机"))
             }
 
-            Log.d(TAG, "Available cameras: ${cameraIdList.joinToString()}")
-
             val cameraId = cameraIdList.firstOrNull { id ->
                 try {
                     cameraManager.getCameraCharacteristics(id)
@@ -93,8 +100,10 @@ class RokidCameraManager(private val context: Context) {
             } ?: cameraIdList.first()
 
             Log.d(TAG, "Selected camera: $cameraId")
+            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
 
             startBackgroundThread()
+            awaitingStillJpeg = false
             val photoResult = CompletableDeferred<ByteArray>()
 
             try {
@@ -104,7 +113,7 @@ class RokidCameraManager(private val context: Context) {
                         override fun onOpened(camera: CameraDevice) {
                             Log.d(TAG, "Camera opened")
                             cameraDevice = camera
-                            startCaptureSession(camera, cameraId, cameraManager, photoResult)
+                            startCaptureSession(camera, characteristics, photoResult)
                         }
 
                         override fun onDisconnected(camera: CameraDevice) {
@@ -144,21 +153,19 @@ class RokidCameraManager(private val context: Context) {
 
     private fun startCaptureSession(
         camera: CameraDevice,
-        cameraId: String,
-        cameraManager: CameraManager,
+        characteristics: CameraCharacteristics,
         photoResult: CompletableDeferred<ByteArray>
     ) {
         try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
             val streamConfigMap =
                 characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val outputSizes = streamConfigMap?.getOutputSizes(ImageFormat.JPEG) ?: emptyArray()
-            val optimalSize = chooseJpegSize(outputSizes)
-            Log.d(TAG, "JPEG size: ${optimalSize.width}x${optimalSize.height}")
+            val captureSize = chooseJpegSize(outputSizes)
+            Log.d(TAG, "JPEG capture size: ${captureSize.width}x${captureSize.height}")
 
             imageReader = ImageReader.newInstance(
-                optimalSize.width,
-                optimalSize.height,
+                captureSize.width,
+                captureSize.height,
                 ImageFormat.JPEG,
                 2
             ).apply {
@@ -166,6 +173,10 @@ class RokidCameraManager(private val context: Context) {
                     { reader ->
                         val image = reader.acquireNextImage() ?: return@setOnImageAvailableListener
                         try {
+                            if (!awaitingStillJpeg) {
+                                Log.d(TAG, "Discarding warmup/preview JPEG frame")
+                                return@setOnImageAvailableListener
+                            }
                             val buffer = image.planes[0].buffer
                             val bytes = ByteArray(buffer.remaining())
                             buffer.get(bytes)
@@ -197,9 +208,9 @@ class RokidCameraManager(private val context: Context) {
                 listOf(imageReader!!.surface),
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
-                        Log.d(TAG, "Capture session configured")
+                        Log.d(TAG, "Capture session configured, starting warmup")
                         captureSession = session
-                        triggerStillCapture(session, photoResult)
+                        startPreviewWarmup(session, characteristics, photoResult)
                     }
 
                     override fun onConfigureFailed(session: CameraCaptureSession) {
@@ -215,16 +226,119 @@ class RokidCameraManager(private val context: Context) {
         }
     }
 
-    /**
-     * 与 v1 一致：仅 STILL_CAPTURE + target，不设置 AE/曝光补偿/Orientation（Rokid 上易卡死）。
-     */
+    private fun startPreviewWarmup(
+        session: CameraCaptureSession,
+        characteristics: CameraCharacteristics,
+        photoResult: CompletableDeferred<ByteArray>
+    ) {
+        val handler = backgroundHandler ?: return
+        val warmupStartMs = SystemClock.elapsedRealtime()
+        var previewFrames = 0
+        var stillTriggered = false
+
+        fun triggerStillOnce(reason: String) {
+            if (stillTriggered || photoResult.isCompleted) return
+            stillTriggered = true
+            warmupTimeoutRunnable?.let { handler.removeCallbacks(it) }
+            Log.i(TAG, "Triggering still capture: $reason (after $previewFrames preview frames)")
+            triggerStillCapture(session, photoResult)
+        }
+
+        val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
+        val supportsContinuousAf = afModes.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+
+        val previewBuilder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+            addTarget(imageReader!!.surface)
+            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            if (supportsContinuousAf) {
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            } else if (afModes.contains(CaptureRequest.CONTROL_AF_MODE_AUTO)) {
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
+            }
+            set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+            set(CaptureRequest.JPEG_QUALITY, 90.toByte())
+        }
+
+        warmupTimeoutRunnable = Runnable {
+            triggerStillOnce("warmup timeout ${WARMUP_TIMEOUT_MS}ms")
+        }
+        handler.postDelayed(warmupTimeoutRunnable!!, WARMUP_TIMEOUT_MS)
+
+        try {
+            session.setRepeatingRequest(
+                previewBuilder.build(),
+                object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: TotalCaptureResult
+                    ) {
+                        if (stillTriggered || photoResult.isCompleted) return
+
+                        previewFrames++
+                        val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+                        val afState = result.get(CaptureResult.CONTROL_AF_STATE)
+                        val aeReady = aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED
+                            || aeState == CaptureResult.CONTROL_AE_STATE_LOCKED
+                        val afReady = afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED
+                            || afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
+                            || !supportsContinuousAf
+
+                        if (previewFrames >= MIN_PREVIEW_FRAMES && aeReady && afReady) {
+                            triggerStillOnce("AE/AF converged at frame $previewFrames")
+                            return
+                        }
+
+                        if (previewFrames >= MAX_WARMUP_FRAMES) {
+                            triggerStillOnce("max warmup frames ($previewFrames)")
+                            return
+                        }
+
+                        val elapsed = SystemClock.elapsedRealtime() - warmupStartMs
+                        if (previewFrames % 3 == 0) {
+                            Log.d(
+                                TAG,
+                                "Warmup frame $previewFrames: ae=$aeState af=$afState elapsed=${elapsed}ms"
+                            )
+                        }
+                    }
+
+                    override fun onCaptureFailed(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        failure: android.hardware.camera2.CaptureFailure
+                    ) {
+                        Log.w(TAG, "Preview frame failed: ${failure.reason}")
+                    }
+                },
+                handler
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Preview warmup failed, fallback to direct capture", e)
+            triggerStillOnce("preview error fallback")
+        }
+    }
+
     private fun triggerStillCapture(
         session: CameraCaptureSession,
         photoResult: CompletableDeferred<ByteArray>
     ) {
         try {
-            val builder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
-            builder.addTarget(imageReader!!.surface)
+            try {
+                session.stopRepeating()
+                session.abortCaptures()
+            } catch (e: Exception) {
+                Log.w(TAG, "Stop repeating before still capture", e)
+            }
+
+            awaitingStillJpeg = true
+
+            val builder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(imageReader!!.surface)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                set(CaptureRequest.JPEG_QUALITY, 92.toByte())
+            }
 
             session.capture(
                 builder.build(),
@@ -236,20 +350,34 @@ class RokidCameraManager(private val context: Context) {
                     ) {
                         Log.d(TAG, "Still capture completed")
                     }
+
+                    override fun onCaptureFailed(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        failure: android.hardware.camera2.CaptureFailure
+                    ) {
+                        Log.e(TAG, "Still capture failed: ${failure.reason}")
+                        if (!photoResult.isCompleted) {
+                            photoResult.completeExceptionally(Exception("静态拍照失败"))
+                        }
+                    }
                 },
                 backgroundHandler
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error triggering capture", e)
-            photoResult.completeExceptionally(e)
+            Log.e(TAG, "Error triggering still capture", e)
+            if (!photoResult.isCompleted) {
+                photoResult.completeExceptionally(e)
+            }
         }
     }
 
-    /** 优先选中等分辨率，避免过大尺寸在 Rokid 上过慢 */
+    /** 优先 1280 以内分辨率：画质够用且预热/传图更快 */
     private fun chooseJpegSize(sizes: Array<Size>): Size {
-        if (sizes.isEmpty()) return Size(640, 480)
+        if (sizes.isEmpty()) return Size(1280, 720)
         val sorted = sizes.sortedByDescending { it.width * it.height }
-        return sorted.firstOrNull { it.width <= 1920 && it.height <= 1080 }
+        return sorted.firstOrNull { it.width <= 1280 && it.height <= 960 }
+            ?: sorted.firstOrNull { it.width <= 1920 && it.height <= 1080 }
             ?: sorted.last()
     }
 
@@ -276,8 +404,10 @@ class RokidCameraManager(private val context: Context) {
         backgroundHandler = null
     }
 
-    /** 关闭相机后稍等再停后台线程，避免 Camera2 回调打到 dead thread（minSdk 24 无 close(callback)） */
     private suspend fun releaseCameraAndThread() {
+        awaitingStillJpeg = false
+        warmupTimeoutRunnable?.let { backgroundHandler?.removeCallbacks(it) }
+        warmupTimeoutRunnable = null
         try {
             captureSession?.stopRepeating()
             captureSession?.abortCaptures()

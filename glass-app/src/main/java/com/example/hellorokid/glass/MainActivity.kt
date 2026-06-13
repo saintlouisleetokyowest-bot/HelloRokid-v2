@@ -228,7 +228,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openCamera() {
         renderState(ScanState.SCANNING)
-        statusText.text = "拍照中，请保持稳定…"
+        statusText.text = "对焦中，请持稳…"
 
         lifecycleScope.launch {
             try {

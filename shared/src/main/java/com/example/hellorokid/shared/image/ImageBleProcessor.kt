@@ -11,16 +11,16 @@ import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+
 /**
- * BLE 传图前处理：纠正方向、提亮、转灰度、缩小体积（名片 OCR 不需要彩色）。
+ * BLE 传图前处理：纠正方向、转灰度、适度缩小压缩（单次 JPEG 编码，避免二次损伤）。
  */
 object ImageBleProcessor {
 
     private const val TAG = "ImageBleProcessor"
-    private const val MAX_WIDTH = 1024
-    private const val JPEG_QUALITY = 85
-    private const val MIN_BRIGHTNESS_TO_BOOST = 20
-    /** Rokid 横拍 JPEG 转竖直握持：+90° 会上下颠倒，需 +270°（等同逆时针 90°） */
+    private const val MAX_WIDTH = 960
+    private const val JPEG_QUALITY = 75
+    /** Rokid 横拍 JPEG 转竖直握持：+270°（等同逆时针 90°） */
     private const val ROKID_LANDSCAPE_TO_PORTRAIT = 270f
 
     data class ProcessResult(
@@ -35,7 +35,6 @@ object ImageBleProcessor {
         var bitmap = decodeWithExifRotation(jpegBytes)
             ?: return ProcessResult(jpegBytes, jpegBytes.size, jpegBytes.size, 0, 0)
 
-        // Rokid 横拍 JPEG（如 1920×1080）需转为竖图；+270° 才是正向，+90° 会 180° 颠倒
         if (bitmap.width > bitmap.height) {
             val rotated = rotate(bitmap, ROKID_LANDSCAPE_TO_PORTRAIT)
             if (rotated !== bitmap) {
@@ -45,10 +44,10 @@ object ImageBleProcessor {
             Log.d(TAG, "Landscape -> portrait: rotated ${ROKID_LANDSCAPE_TO_PORTRAIT}°")
         }
 
-        val brightened = boostBrightness(bitmap)
-        if (brightened !== bitmap) {
+        val gray = toGrayscale(bitmap)
+        if (gray !== bitmap) {
             bitmap.recycle()
-            bitmap = brightened
+            bitmap = gray
         }
 
         val scaled = scaleToMaxWidth(bitmap, MAX_WIDTH)
@@ -64,7 +63,7 @@ object ImageBleProcessor {
 
         Log.i(
             TAG,
-            "BLE image: ${jpegBytes.size}B -> ${output.size}B (${w}x$h color q$JPEG_QUALITY)"
+            "BLE image: ${jpegBytes.size}B -> ${output.size}B (${w}x$h gray q$JPEG_QUALITY)"
         )
 
         return ProcessResult(
@@ -104,21 +103,8 @@ object ImageBleProcessor {
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
-    private fun boostBrightness(bitmap: Bitmap): Bitmap {
-        val brightness = estimateBrightness(bitmap)
-        // 过暗时强行拉升容易噪点/发黑，交给手机端 OCR 增强处理
-        if (brightness < MIN_BRIGHTNESS_TO_BOOST || brightness >= 100) return bitmap
-
-        val scale = (160f / brightness.coerceAtLeast(30f)).coerceIn(1.2f, 2.0f)
-        val offset = 25f
-        val matrix = ColorMatrix(
-            floatArrayOf(
-                scale, 0f, 0f, 0f, offset,
-                0f, scale, 0f, 0f, offset,
-                0f, 0f, scale, 0f, offset,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
+    private fun toGrayscale(bitmap: Bitmap): Bitmap {
+        val matrix = ColorMatrix().apply { setSaturation(0f) }
         return applyMatrix(bitmap, matrix)
     }
 
@@ -143,20 +129,5 @@ object ImageBleProcessor {
         val stream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         return stream.toByteArray()
-    }
-
-    private fun estimateBrightness(bitmap: Bitmap): Float {
-        val sample = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
-        val pixels = IntArray(24 * 24)
-        sample.getPixels(pixels, 0, 24, 0, 0, 24, 24)
-        if (sample !== bitmap) sample.recycle()
-        var sum = 0L
-        for (pixel in pixels) {
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            sum += (0.299 * r + 0.587 * g + 0.114 * b).toLong()
-        }
-        return sum.toFloat() / pixels.size
     }
 }
