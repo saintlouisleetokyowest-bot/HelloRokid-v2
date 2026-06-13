@@ -27,13 +27,54 @@ class BackendApiService {
 
     private val backendUrl = BuildConfig.BACKEND_URL.trimEnd('/')
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+    private val extractClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    /** 直接上传眼镜传来的原始 JPEG，避免二次压缩（对齐 v1 链路）。 */
+    private val enrichClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    /** 快速提取联系信息（仅 OCR，不含情报字段）。 */
+    suspend fun extractBusinessCard(jpegBytes: ByteArray): Result<BusinessCard> = withContext(Dispatchers.IO) {
+        try {
+            val base64Image = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
+            postExtract(base64Image)
+        } catch (e: Exception) {
+            Log.e(TAG, "Extract failed", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun extractBusinessCard(bitmap: Bitmap): Result<BusinessCard> = withContext(Dispatchers.IO) {
+        try {
+            val enhanced = ImagePostProcessor.enhanceForOcr(bitmap)
+            val base64Image = bitmapToBase64(enhanced)
+            if (enhanced !== bitmap) {
+                enhanced.recycle()
+            }
+            postExtract(base64Image)
+        } catch (e: Exception) {
+            Log.e(TAG, "Extract failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** 根据联系信息补充公司情报（Cloudsway + Gemini）。 */
+    suspend fun enrichBusinessCard(contact: BusinessCard): Result<BusinessCard> = withContext(Dispatchers.IO) {
+        try {
+            postEnrich(contact)
+        } catch (e: Exception) {
+            Log.e(TAG, "Enrich failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** 兼容旧接口：一次性完整分析。 */
     suspend fun analyzeBusinessCard(jpegBytes: ByteArray): Result<BusinessCard> = withContext(Dispatchers.IO) {
         try {
             val base64Image = Base64.encodeToString(jpegBytes, Base64.NO_WRAP)
@@ -58,6 +99,36 @@ class BackendApiService {
         }
     }
 
+    private fun postExtract(base64Image: String): Result<BusinessCard> {
+        val requestBody = JSONObject()
+            .put("image", base64Image)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url("$backendUrl/api/extract")
+            .post(requestBody)
+            .build()
+
+        return executeRequest(extractClient, request) { body ->
+            parseBusinessCard(body)
+        }
+    }
+
+    private fun postEnrich(contact: BusinessCard): Result<BusinessCard> {
+        val requestBody = contactToJson(contact).toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url("$backendUrl/api/enrich")
+            .post(requestBody)
+            .build()
+
+        return executeRequest(enrichClient, request) { body ->
+            parseBusinessCard(body)
+        }
+    }
+
     private fun postAnalyze(base64Image: String): Result<BusinessCard> {
         val requestBody = JSONObject()
             .put("image", base64Image)
@@ -69,14 +140,37 @@ class BackendApiService {
             .post(requestBody)
             .build()
 
+        return executeRequest(enrichClient, request) { body ->
+            parseBusinessCard(body)
+        }
+    }
+
+    private fun executeRequest(
+        client: OkHttpClient,
+        request: Request,
+        parser: (String) -> BusinessCard
+    ): Result<BusinessCard> {
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) {
             val errorBody = response.body?.string()
             throw Exception("Backend error ${response.code}: $errorBody")
         }
-
         val responseBody = response.body?.string() ?: throw Exception("Empty response")
-        return Result.success(parseBusinessCard(responseBody))
+        return Result.success(parser(responseBody))
+    }
+
+    private fun contactToJson(contact: BusinessCard): JSONObject {
+        return JSONObject()
+            .put("name", contact.name)
+            .put("title", contact.title)
+            .put("department", contact.department)
+            .put("company", contact.company)
+            .put("phone", contact.phone)
+            .put("mobile", contact.mobile)
+            .put("fax", contact.fax)
+            .put("email", contact.email)
+            .put("address", contact.address)
+            .put("website", contact.website)
     }
 
     private fun bitmapToBase64(bitmap: Bitmap): String {

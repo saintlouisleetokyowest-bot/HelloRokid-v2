@@ -11,7 +11,8 @@
     <string name="status_hint_disconnected">连接 Rokid Glass 后，可接收眼镜端扫描的名片</string>
     <string name="status_hint_connected">等待眼镜端扫描，或从相册导入名片图片</string>
     <string name="status_hint_receiving">正在通过蓝牙接收眼镜拍摄的名片图片…</string>
-    <string name="status_hint_analyzing">正在调用后端分析名片，请稍候…</string>
+    <string name="status_hint_analyzing">正在识别名片，识别完成后将先同步联系信息…</string>
+    <string name="status_hint_enriching">联系信息已同步，正在补充公司情报…</string>
     <string name="card_count_badge">%1$d 张名片</string>
 
     <!-- Actions -->

@@ -120,9 +120,23 @@ class MainActivity : AppCompatActivity() {
 
             override fun onCardResultReceived(card: BusinessCard) {
                 runOnUiThread {
-                    updateResultUI(card)
+                    val isFirstResult = currentState != ScanState.RESULT
+                    val isPartial = isPartialResult(card)
+                    updateResultUI(card, scrollToTop = isFirstResult)
                     renderState(ScanState.RESULT)
-                    showToast("AI 分析完成")
+                    if (isFirstResult) {
+                        statusText.setText(
+                            if (isPartial) R.string.status_result_partial
+                            else R.string.status_result
+                        )
+                        showToast(
+                            if (isPartial) getString(R.string.toast_contact_ready)
+                            else getString(R.string.toast_analysis_complete)
+                        )
+                    } else if (!isPartial) {
+                        statusText.setText(R.string.status_result)
+                        showToast(getString(R.string.toast_intel_updated))
+                    }
                 }
             }
 
@@ -266,7 +280,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateResultUI(card: BusinessCard) {
+    private fun isPartialResult(card: BusinessCard): Boolean {
+        return card.industry.isBlank() &&
+            card.companySize.isBlank() &&
+            card.revenue.isBlank() &&
+            card.coreBusiness.isBlank() &&
+            card.markets.isBlank() &&
+            card.partners.isBlank() &&
+            card.opportunities.isBlank() &&
+            card.investmentReadiness.isBlank() &&
+            card.timing.isBlank()
+    }
+
+    private fun updateResultUI(card: BusinessCard, scrollToTop: Boolean = true) {
         setField(personNameText, card.name)
         setField(personTitleText, card.title)
         val contact = listOf(card.phone, card.mobile, card.fax, card.email)
@@ -283,7 +309,9 @@ class MainActivity : AppCompatActivity() {
         setField(oppNeedsText, card.opportunities)
         setField(oppInvestmentText, card.investmentReadiness)
         setField(oppTimingText, card.timing)
-        scrollView.scrollTo(0, 0)
+        if (scrollToTop) {
+            scrollView.scrollTo(0, 0)
+        }
     }
 
     private fun setField(view: TextView, value: String) {

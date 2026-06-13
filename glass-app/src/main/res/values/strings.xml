@@ -8,6 +8,10 @@
     <string name="status_scanning">Taking photo…</string>
     <string name="status_waiting_ai">Waiting for phone AI…</string>
     <string name="status_result">Analysis complete — press OK to scan again</string>
+    <string name="status_result_partial">Contact ready — enriching intelligence…</string>
+    <string name="toast_contact_ready">Contact recognized</string>
+    <string name="toast_analysis_complete">AI analysis complete</string>
+    <string name="toast_intel_updated">Intelligence updated</string>
 
     <string name="section_person">◆ Personal</string>
     <string name="person_name">• Name</string>

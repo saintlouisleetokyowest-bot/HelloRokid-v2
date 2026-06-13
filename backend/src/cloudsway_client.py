@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ class CloudswayClient:
         self,
         query: str,
         *,
+        fast: bool = False,
         count: int = 8,
         main_text: bool = True,
         content_timeout: float = 3.0,
@@ -33,14 +35,23 @@ class CloudswayClient:
         if not query.strip():
             return []
 
-        params: dict[str, Any] = {
-            "q": query.strip(),
-            "count": max(1, min(count, 10)),
-            "enableContent": "true",
-            "contentType": "TEXT",
-            "contentTimeout": content_timeout,
-            "mainText": "true" if main_text else "false",
-        }
+        if fast:
+            params: dict[str, Any] = {
+                "q": query.strip(),
+                "count": max(1, min(count, 5)),
+                "enableContent": "false",
+                "mainText": "false",
+            }
+        else:
+            params = {
+                "q": query.strip(),
+                "count": max(1, min(count, 10)),
+                "enableContent": "true",
+                "contentType": "TEXT",
+                "contentTimeout": content_timeout,
+                "mainText": "true" if main_text else "false",
+            }
+
         headers = {
             "Authorization": f"Bearer {self.access_key}",
             "pragma": "no-cache",
@@ -50,7 +61,7 @@ class CloudswayClient:
             self.search_url,
             headers=headers,
             params=params,
-            timeout=30,
+            timeout=15 if fast else 30,
         )
         if not response.ok:
             detail = response.text[:500]
@@ -64,9 +75,37 @@ class CloudswayClient:
             return []
         return [page for page in pages if isinstance(page, dict)]
 
+    def search_parallel(
+        self,
+        queries: list[str],
+        *,
+        fast: bool = True,
+        count: int = 5,
+    ) -> list[dict[str, Any]]:
+        if not queries:
+            return []
+
+        all_pages: list[list[dict[str, Any]]] = []
+        workers = min(len(queries), 2)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self.search, query, fast=fast, count=count): query
+                for query in queries
+            }
+            for future in as_completed(futures):
+                query = futures[future]
+                try:
+                    pages = future.result()
+                    logger.info("Cloudsway query=%r returned %d results", query, len(pages))
+                    all_pages.append(pages)
+                except Exception as exc:
+                    logger.warning("Cloudsway search failed for query=%r: %s", query, exc)
+
+        return merge_search_pages(all_pages)
+
 
 def build_search_queries(contact: dict[str, str]) -> list[str]:
-    """Build a small set of search queries from extracted contact info."""
+    """Build search queries from extracted contact info."""
     company = contact.get("company", "").strip()
     website = contact.get("website", "").strip()
     name = contact.get("name", "").strip()
@@ -75,18 +114,17 @@ def build_search_queries(contact: dict[str, str]) -> list[str]:
     queries: list[str] = []
     if company:
         queries.append(
-            f'"{company}" company profile industry business revenue employees partners'
+            f'"{company}" company industry business revenue employees partners news'
         )
-        queries.append(f'"{company}" 公司 业务 行业 规模 融资 合作伙伴 最新动态')
+        queries.append(f'"{company}" 公司 行业 业务 规模 融资 合作伙伴 最新动态')
     elif website:
         domain = extract_domain(website)
         if domain:
-            queries.append(f'site:{domain} company about business products')
+            queries.append(f"site:{domain} company about business products")
 
     if not queries and name and title:
         queries.append(f'"{name}" "{title}" company profile')
 
-    # Deduplicate while preserving order.
     seen: set[str] = set()
     unique: list[str] = []
     for query in queries:
@@ -120,7 +158,7 @@ def merge_search_pages(pages_list: list[list[dict[str, Any]]]) -> list[dict[str,
             if url:
                 seen_urls.add(url)
             merged.append(page)
-    return merged[:10]
+    return merged[:8]
 
 
 def format_search_results_for_prompt(pages: list[dict[str, Any]]) -> str:
@@ -132,7 +170,6 @@ def format_search_results_for_prompt(pages: list[dict[str, Any]]) -> str:
         title = str(page.get("name", "")).strip()
         url = str(page.get("url", "")).strip()
         snippet = str(page.get("snippet", "")).strip()
-        main_text = str(page.get("mainText", "")).strip()
         site_name = str(page.get("siteName", "")).strip()
         published = str(page.get("datePublished", "")).strip()
 
@@ -145,7 +182,5 @@ def format_search_results_for_prompt(pages: list[dict[str, Any]]) -> str:
             lines.append(f"Published: {published}")
         if snippet:
             lines.append(f"Snippet: {snippet[:500]}")
-        if main_text:
-            lines.append(f"MainText: {main_text[:1000]}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)

@@ -58,8 +58,9 @@ HelloRokid-v2/
 
 - **FastAPI** 代理 Gemini API，隐藏 API Key
 - 默认模型 `gemini-2.5-flash`（可通过 `GEMINI_MODEL` 环境变量覆盖）
-- 结构化 JSON Schema 输出，含容错解析
-- 接收 Base64 图片，返回 19 个名片字段（含部门、手机、传真等）
+- **分阶段分析**：`POST /api/extract`（快速 OCR）→ `POST /api/enrich`（Cloudsway 检索 + Gemini 情报补全）
+- Cloudsway SmartSearch 并行检索（snippet 模式，无全文抓取）
+- 保留 `POST /api/analyze` 兼容一次性完整分析
 
 ## 快速开始
 

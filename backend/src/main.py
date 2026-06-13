@@ -59,12 +59,25 @@ class ImageAnalysisRequest(BaseModel):
     image: str  # Base64 encoded image
 
 
+class ContactEnrichRequest(BaseModel):
+    name: str = ""
+    title: str = ""
+    department: str = ""
+    company: str = ""
+    phone: str = ""
+    mobile: str = ""
+    fax: str = ""
+    email: str = ""
+    address: str = ""
+    website: str = ""
+
+
 @app.get("/")
 async def root():
     return {
         "status": "ok",
         "message": "Rokid Card Backend API",
-        "pipeline": "ocr -> cloudsway -> gemini-enrich",
+        "pipeline": "extract -> enrich (staged)",
         "cloudsway_configured": _CLOUDSWAY_CONFIGURED,
     }
 
@@ -78,12 +91,38 @@ async def health():
     }
 
 
+@app.post("/api/extract")
+async def extract_card(request: ImageAnalysisRequest):
+    """Fast path: OCR contact fields only."""
+    try:
+        image_data = base64.b64decode(request.image)
+        logger.info("Extract request: %d bytes", len(image_data))
+        return card_analyzer.extract(image_data)
+    except Exception as e:
+        logger.error("Extract failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/enrich")
+async def enrich_card(request: ContactEnrichRequest):
+    """Slow path: search + intelligence fields from contact info."""
+    try:
+        contact = request.model_dump()
+        logger.info("Enrich request: company=%r, name=%r", contact.get("company"), contact.get("name"))
+        intel = card_analyzer.enrich(contact)
+        return {**contact, **intel}
+    except Exception as e:
+        logger.error("Enrich failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/analyze")
 async def analyze_card(request: ImageAnalysisRequest):
+    """Legacy full pipeline (extract + enrich in one call)."""
     try:
         image_data = base64.b64decode(request.image)
         logger.info(
-            "Analyzing image: %d bytes, model=%s, cloudsway=%s",
+            "Analyze request: %d bytes, model=%s, cloudsway=%s",
             len(image_data),
             GEMINI_MODEL,
             _CLOUDSWAY_CONFIGURED,

@@ -11,7 +11,6 @@ try:
         CloudswayClient,
         build_search_queries,
         format_search_results_for_prompt,
-        merge_search_pages,
     )
     from src.gemini_client import GeminiClient
 except ModuleNotFoundError:
@@ -19,7 +18,6 @@ except ModuleNotFoundError:
         CloudswayClient,
         build_search_queries,
         format_search_results_for_prompt,
-        merge_search_pages,
     )
     from gemini_client import GeminiClient
 
@@ -90,19 +88,22 @@ def _normalize_string_map(data: dict[str, Any], fields: list[str]) -> dict[str, 
     return {field: str(data.get(field, "") or "").strip() for field in fields}
 
 
+def _empty_intel() -> dict[str, str]:
+    return {field: "" for field in INTEL_FIELDS}
+
+
 class CardAnalyzer:
     def __init__(self, gemini: GeminiClient, cloudsway: CloudswayClient | None) -> None:
         self.gemini = gemini
         self.cloudsway = cloudsway
 
     def analyze(self, image_data: bytes) -> dict[str, str]:
-        contact = self._extract_contact(image_data)
-        search_pages = self._search_company_intel(contact)
-        intel = self._enrich_intel(contact, search_pages)
+        contact = self.extract(image_data)
+        intel = self.enrich(contact)
         return {**contact, **intel}
 
-    def _extract_contact(self, image_data: bytes) -> dict[str, str]:
-        logger.info("Step 1/3: extracting contact info from business card image")
+    def extract(self, image_data: bytes) -> dict[str, str]:
+        logger.info("Extract: OCR contact info from business card image")
         raw = self.gemini.generate_json(
             EXTRACT_CONTACT_PROMPT,
             CONTACT_SCHEMA,
@@ -112,12 +113,21 @@ class CardAnalyzer:
         )
         contact = _normalize_string_map(raw, CONTACT_FIELDS)
         logger.info(
-            "Contact extracted: company=%r, name=%r, website=%r",
+            "Extract complete: company=%r, name=%r, website=%r",
             contact.get("company"),
             contact.get("name"),
             contact.get("website"),
         )
         return contact
+
+    def enrich(self, contact: dict[str, str]) -> dict[str, str]:
+        normalized_contact = _normalize_string_map(contact, CONTACT_FIELDS)
+        search_pages = self._search_company_intel(normalized_contact)
+        try:
+            return self._enrich_intel(normalized_contact, search_pages)
+        except Exception as exc:
+            logger.warning("Intelligence enrichment failed, returning empty intel: %s", exc)
+            return _empty_intel()
 
     def _search_company_intel(self, contact: dict[str, str]) -> list[dict[str, Any]]:
         if not self.cloudsway or not self.cloudsway.configured:
@@ -129,26 +139,17 @@ class CardAnalyzer:
             logger.info("No usable search query from contact info; skipping web search")
             return []
 
-        logger.info("Step 2/3: Cloudsway search with %d queries", len(queries))
-        all_pages: list[list[dict[str, Any]]] = []
-        for query in queries:
-            try:
-                pages = self.cloudsway.search(query)
-                logger.info("Cloudsway query=%r returned %d results", query, len(pages))
-                all_pages.append(pages)
-            except Exception as exc:
-                logger.warning("Cloudsway search failed for query=%r: %s", query, exc)
-
-        merged = merge_search_pages(all_pages)
-        logger.info("Merged search results: %d unique pages", len(merged))
-        return merged
+        logger.info("Enrich: Cloudsway parallel search with %d queries", len(queries))
+        pages = self.cloudsway.search_parallel(queries, fast=True, count=5)
+        logger.info("Cloudsway merged results: %d unique pages", len(pages))
+        return pages
 
     def _enrich_intel(
         self,
         contact: dict[str, str],
         search_pages: list[dict[str, Any]],
     ) -> dict[str, str]:
-        logger.info("Step 3/3: enriching intelligence fields with Gemini")
+        logger.info("Enrich: generating intelligence fields with Gemini")
         prompt = ENRICH_INTEL_PROMPT_TEMPLATE.format(
             contact_json=json.dumps(contact, ensure_ascii=False, indent=2),
             search_text=format_search_results_for_prompt(search_pages),
@@ -157,9 +158,9 @@ class CardAnalyzer:
             prompt,
             INTEL_SCHEMA,
             temperature=0.3,
-            max_output_tokens=4096,
+            max_output_tokens=2048,
         )
         intel = _normalize_string_map(raw, INTEL_FIELDS)
         filled = sum(1 for value in intel.values() if value)
-        logger.info("Intelligence enrichment complete: %d/%d fields filled", filled, len(INTEL_FIELDS))
+        logger.info("Enrich complete: %d/%d intel fields filled", filled, len(INTEL_FIELDS))
         return intel

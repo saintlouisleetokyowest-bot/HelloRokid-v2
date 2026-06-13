@@ -13,12 +13,14 @@ import com.example.hellorokid.mobile.data.CardRepository
 import com.example.hellorokid.mobile.export.CardExportHelper
 import com.example.hellorokid.mobile.export.ImageSaveHelper
 import com.example.hellorokid.shared.data.BusinessCard
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainViewModel(
     private val application: Application,
@@ -38,6 +40,9 @@ class MainViewModel(
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+
+    private var enrichJob: Job? = null
+    private val scanGeneration = AtomicInteger(0)
 
     init {
         bleClient.setListener(object : PhoneBleClient.Listener {
@@ -78,22 +83,98 @@ class MainViewModel(
     }
 
     private fun onBleImageReceived(bitmap: Bitmap, jpegBytes: ByteArray) {
+        val generation = scanGeneration.incrementAndGet()
+        enrichJob?.cancel()
+
         viewModelScope.launch {
             _connectionState.value = ConnectionState.RECEIVING
             Log.i("MainViewModel", "Received JPEG: ${jpegBytes.size} bytes, ${bitmap.width}x${bitmap.height}")
 
-            val saveResult = ImageSaveHelper.saveJpegToGallery(application, jpegBytes)
-            saveResult.fold(
-                onSuccess = { path ->
-                    _message.value = "图片已保存到相册（$path，${jpegBytes.size / 1024}KB 灰度），正在 AI 分析…"
-                },
-                onFailure = { error ->
-                    _message.value = "相册保存失败: ${error.message}，仍尝试 AI 分析…"
-                }
-            )
+            launch { saveToGalleryAsync(jpegBytes) }
 
-            analyzeJpeg(jpegBytes)
+            analyzeStaged(
+                jpegBytes = jpegBytes,
+                generation = generation,
+                syncToGlasses = true
+            )
         }
+    }
+
+    private suspend fun saveToGalleryAsync(jpegBytes: ByteArray) {
+        val saveResult = ImageSaveHelper.saveJpegToGallery(application, jpegBytes)
+        saveResult.fold(
+            onSuccess = { path ->
+                _message.value = "图片已保存到相册（$path，${jpegBytes.size / 1024}KB），正在识别…"
+            },
+            onFailure = { error ->
+                Log.w("MainViewModel", "Gallery save failed: ${error.message}")
+            }
+        )
+    }
+
+    private suspend fun analyzeStaged(
+        jpegBytes: ByteArray,
+        generation: Int,
+        syncToGlasses: Boolean
+    ) {
+        _connectionState.value = ConnectionState.ANALYZING
+
+        val extractResult = backendApi.extractBusinessCard(jpegBytes)
+        if (generation != scanGeneration.get()) return
+
+        extractResult.fold(
+            onSuccess = { contact ->
+                if (syncToGlasses) {
+                    bleClient.sendBusinessCardResult(contact)
+                }
+
+                val displayName = contact.name.ifBlank { "新名片" }
+                _message.value = "已识别 $displayName，正在补充情报…"
+
+                val cardId = repository.insert(contact)
+
+                enrichJob = viewModelScope.launch {
+                    enrichAndFinalize(contact, cardId, generation, syncToGlasses)
+                }
+            },
+            onFailure = { error ->
+                _connectionState.value = ConnectionState.CONNECTED
+                val msg = error.message ?: "未知错误"
+                _message.value = "识别失败: $msg"
+                if (syncToGlasses) {
+                    bleClient.sendResultError(msg)
+                }
+            }
+        )
+    }
+
+    private suspend fun enrichAndFinalize(
+        contact: BusinessCard,
+        cardId: Long,
+        generation: Int,
+        syncToGlasses: Boolean
+    ) {
+        val enrichResult = backendApi.enrichBusinessCard(contact)
+        if (generation != scanGeneration.get()) return
+
+        enrichResult.fold(
+            onSuccess = { fullCard ->
+                repository.updateFromBusinessCard(cardId, fullCard)
+                if (syncToGlasses) {
+                    bleClient.sendBusinessCardResult(fullCard)
+                }
+                _connectionState.value = ConnectionState.CONNECTED
+                val name = fullCard.name.ifBlank { "新名片" }
+                _message.value = "已保存 $name，情报已同步到眼镜"
+            },
+            onFailure = { error ->
+                _connectionState.value = ConnectionState.CONNECTED
+                val name = contact.name.ifBlank { "新名片" }
+                val msg = error.message ?: "未知错误"
+                _message.value = "已保存 $name（情报补充失败: $msg）"
+                Log.w("MainViewModel", "Enrich failed, contact already saved: $msg")
+            }
+        )
     }
 
     fun clearMessage() {
@@ -106,54 +187,46 @@ class MainViewModel(
     }
 
     fun disconnect() {
+        enrichJob?.cancel()
         bleClient.disconnect()
         _connectionState.value = ConnectionState.DISCONNECTED
         _message.value = "已断开与眼镜的连接"
     }
 
-    private fun analyzeJpeg(jpegBytes: ByteArray) {
-        viewModelScope.launch {
-            _connectionState.value = ConnectionState.ANALYZING
-            val result = backendApi.analyzeBusinessCard(jpegBytes)
-            result.fold(
-                onSuccess = { card ->
-                    repository.insert(card)
-                    syncResultToGlasses(card)
-                },
-                onFailure = { error ->
-                    _connectionState.value = ConnectionState.CONNECTED
-                    val msg = error.message ?: "未知错误"
-                    _message.value = "AI 分析失败: $msg（原图已在相册中）"
-                    viewModelScope.launch { bleClient.sendResultError(msg) }
-                }
-            )
-        }
-    }
-
-    private suspend fun syncResultToGlasses(card: BusinessCard) {
-        val sendResult = bleClient.sendBusinessCardResult(card)
-        _connectionState.value = ConnectionState.CONNECTED
-        val name = card.name.ifBlank { "新名片" }
-        _message.value = sendResult.fold(
-            onSuccess = { "已保存 $name，已同步到眼镜" },
-            onFailure = { "已保存 $name（同步眼镜失败: ${it.message}）" }
-        )
-    }
-
     fun analyzeImage(bitmap: Bitmap) {
+        val generation = scanGeneration.incrementAndGet()
+        enrichJob?.cancel()
+        val syncToGlasses = when (_connectionState.value) {
+            ConnectionState.CONNECTED,
+            ConnectionState.RECEIVING,
+            ConnectionState.ANALYZING -> true
+            else -> false
+        }
+
         viewModelScope.launch {
             _connectionState.value = ConnectionState.ANALYZING
-            val result = backendApi.analyzeBusinessCard(bitmap)
-            result.fold(
-                onSuccess = { card ->
-                    repository.insert(card)
-                    syncResultToGlasses(card)
+
+            val extractResult = backendApi.extractBusinessCard(bitmap)
+            if (generation != scanGeneration.get()) return@launch
+
+            extractResult.fold(
+                onSuccess = { contact ->
+                    val displayName = contact.name.ifBlank { "新名片" }
+                    _message.value = "已识别 $displayName，正在补充情报…"
+
+                    val cardId = repository.insert(contact)
+
+                    if (syncToGlasses) {
+                        bleClient.sendBusinessCardResult(contact)
+                    }
+
+                    enrichJob = viewModelScope.launch {
+                        enrichAndFinalize(contact, cardId, generation, syncToGlasses)
+                    }
                 },
                 onFailure = { error ->
                     _connectionState.value = ConnectionState.CONNECTED
-                    val msg = error.message ?: "未知错误"
-                    _message.value = "AI 分析失败: $msg（图片已在相册中）"
-                    viewModelScope.launch { bleClient.sendResultError(msg) }
+                    _message.value = "识别失败: ${error.message ?: "未知错误"}"
                 }
             )
         }
@@ -190,6 +263,7 @@ class MainViewModel(
     }
 
     override fun onCleared() {
+        enrichJob?.cancel()
         bleClient.setListener(null)
         super.onCleared()
     }
