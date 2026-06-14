@@ -40,9 +40,19 @@ class CardListAdapter(
         private val industryChip: TextView = itemView.findViewById(R.id.cardIndustryText)
 
         fun bind(card: BusinessCardEntity) {
-            nameText.text = card.name.ifBlank { "未识别姓名" }
-            titleText.text = card.title.ifBlank { "职位未知" }
-            companyText.text = card.company.ifBlank { "公司未知" }
+            val context = itemView.context
+            nameText.text = CardDisplayHelper.withSecondary(
+                card.name.ifBlank { context.getString(R.string.list_name_unknown) },
+                card.nameReading
+            )
+            titleText.text = CardDisplayHelper.withSecondary(
+                card.title.ifBlank { context.getString(R.string.list_title_unknown) },
+                card.titleLocalized
+            )
+            companyText.text = CardDisplayHelper.withSecondary(
+                card.company.ifBlank { context.getString(R.string.list_company_unknown) },
+                card.companyNameEn
+            )
             metaText.text = dateFormat.format(Date(card.scannedAt))
 
             if (card.industry.isNotBlank()) {

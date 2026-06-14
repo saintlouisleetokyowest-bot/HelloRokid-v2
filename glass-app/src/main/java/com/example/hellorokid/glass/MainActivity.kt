@@ -2,11 +2,13 @@ package com.example.hellorokid.glass
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
+import android.view.TextureView
 import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
@@ -19,26 +21,37 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.hellorokid.glass.ble.GlassBleServer
+import com.example.hellorokid.glass.camera.FramingCameraController
 import com.example.hellorokid.glass.camera.RokidCameraManager
+import com.example.hellorokid.glass.ui.CardFramingOverlay
+import com.example.hellorokid.shared.camera.CameraCropMapper
 import com.example.hellorokid.shared.data.BusinessCard
 import com.example.hellorokid.shared.image.ImageBleProcessor
+import com.example.hellorokid.shared.image.NormalizedRect
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Rokid 眼镜端：拍照并通过 BLE 发送给手机，接收 AI 结果并展示
+ * Rokid 眼镜端：取景 preview + 裁切传图 + BLE 发送 + AI 结果展示
  */
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "RokidGlassMain"
+        /** 定焦镜头：等待预览曝光稳定后再拍（非 AF） */
+        private const val FRAMING_READY_MS = 800L
     }
 
     private enum class ScanState {
-        READY, SCANNING, WAITING, RESULT, CONNECTING
+        READY, FRAMING, SCANNING, WAITING, RESULT, CONNECTING
     }
 
+    private lateinit var framingContainer: View
+    private lateinit var previewView: TextureView
+    private lateinit var framingOverlay: CardFramingOverlay
+    private lateinit var framingHint: TextView
+    private lateinit var contentPanel: View
     private lateinit var readyHint: TextView
     private lateinit var scanningHint: TextView
     private lateinit var resultPanel: View
@@ -60,19 +73,48 @@ class MainActivity : AppCompatActivity() {
     private lateinit var oppTimingText: TextView
 
     private var currentState = ScanState.READY
+    private var pendingEnterFraming = false
+    private var previewReady = false
+    private var framingEnteredAtMs = 0L
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var bleServer: GlassBleServer
-    private val cameraManager by lazy { RokidCameraManager(this) }
+    private val framingCamera by lazy { FramingCameraController(this) }
+    private val fallbackCamera by lazy { RokidCameraManager(this) }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.values.all { it }
         if (allGranted) {
-            openCamera()
+            enterFraming()
         } else {
             showToast("需要相机和蓝牙权限")
         }
+    }
+
+    private val previewListener = object : TextureView.SurfaceTextureListener {
+        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+            if (pendingEnterFraming) {
+                pendingEnterFraming = false
+                startFramingSession()
+            }
+        }
+
+        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+            if (currentState == ScanState.FRAMING) {
+                lifecycleScope.launch {
+                    framingCamera.applyPreviewTransform(previewView)
+                    updateFramingOverlayForPreview()
+                }
+            }
+        }
+
+        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+            lifecycleScope.launch { framingCamera.stop() }
+            return true
+        }
+
+        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,6 +134,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        lifecycleScope.launch { framingCamera.stop() }
         bleServer.stop()
         super.onDestroy()
     }
@@ -113,8 +156,11 @@ class MainActivity : AppCompatActivity() {
 
             override fun onClientDisconnected() {
                 showToast("手机已断开")
-                if (currentState == ScanState.WAITING) {
-                    renderState(ScanState.READY)
+                if (currentState == ScanState.WAITING || currentState == ScanState.FRAMING) {
+                    lifecycleScope.launch {
+                        framingCamera.stop()
+                        renderState(ScanState.READY)
+                    }
                 }
             }
 
@@ -143,7 +189,10 @@ class MainActivity : AppCompatActivity() {
             override fun onCardResultError(message: String) {
                 runOnUiThread {
                     showToast("分析失败: $message")
-                    renderState(ScanState.READY)
+                    lifecycleScope.launch {
+                        framingCamera.stop()
+                        renderState(ScanState.READY)
+                    }
                 }
             }
         })
@@ -153,6 +202,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
+        framingContainer = findViewById(R.id.framingContainer)
+        previewView = findViewById(R.id.previewView)
+        framingOverlay = findViewById(R.id.framingOverlay)
+        framingHint = findViewById(R.id.framingHint)
+        contentPanel = findViewById(R.id.contentPanel)
         readyHint = findViewById(R.id.readyHint)
         scanningHint = findViewById(R.id.scanningHint)
         resultPanel = findViewById(R.id.resultPanel)
@@ -172,6 +226,8 @@ class MainActivity : AppCompatActivity() {
         oppNeedsText = findViewById(R.id.oppNeedsText)
         oppInvestmentText = findViewById(R.id.oppInvestmentText)
         oppTimingText = findViewById(R.id.oppTimingText)
+
+        previewView.surfaceTextureListener = previewListener
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -180,103 +236,221 @@ class MainActivity : AppCompatActivity() {
         when (keyCode) {
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
                 when (currentState) {
-                    ScanState.READY -> checkPermissionsAndScan()
+                    ScanState.READY -> checkPermissionsAndEnterFraming()
+                    ScanState.FRAMING -> captureAndSend()
                     ScanState.SCANNING, ScanState.WAITING, ScanState.CONNECTING -> {}
-                    ScanState.RESULT -> renderState(ScanState.READY)
+                    ScanState.RESULT -> {
+                        lifecycleScope.launch {
+                            framingCamera.stop()
+                            renderState(ScanState.READY)
+                        }
+                    }
                 }
                 return true
             }
+            KeyEvent.KEYCODE_BACK -> {
+                if (currentState == ScanState.FRAMING) {
+                    cancelFraming()
+                    return true
+                }
+            }
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_PAGE_UP -> {
-                scrollView.scrollBy(0, -100)
+                if (currentState != ScanState.FRAMING) {
+                    scrollView.scrollBy(0, -100)
+                }
                 return true
             }
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
-                scrollView.scrollBy(0, 100)
+                if (currentState != ScanState.FRAMING) {
+                    scrollView.scrollBy(0, 100)
+                }
                 return true
             }
         }
         return super.onKeyDown(keyCode, event)
     }
 
-    private fun checkPermissionsAndScan() {
+    private fun checkPermissionsAndEnterFraming() {
         val neededPermissions = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.CAMERA
-            ) != PackageManager.PERMISSION_GRANTED
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
         ) {
             neededPermissions.add(Manifest.permission.CAMERA)
         }
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.BLUETOOTH_ADVERTISE
-            ) != PackageManager.PERMISSION_GRANTED
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADVERTISE)
+            != PackageManager.PERMISSION_GRANTED
         ) {
             neededPermissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
         }
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.BLUETOOTH_CONNECT
-            ) != PackageManager.PERMISSION_GRANTED
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+            != PackageManager.PERMISSION_GRANTED
         ) {
             neededPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
 
         if (neededPermissions.isEmpty()) {
-            openCamera()
+            enterFraming()
         } else {
             permissionLauncher.launch(neededPermissions.toTypedArray())
         }
     }
 
-    private fun openCamera() {
+    private fun enterFraming() {
+        if (!bleServer.isConnected()) {
+            showToast("手机未连接，请先在手机端点击「连接眼镜」")
+            return
+        }
+
+        previewReady = false
+        framingEnteredAtMs = System.currentTimeMillis()
+        renderState(ScanState.FRAMING)
+
+        if (previewView.isAvailable) {
+            startFramingSession()
+        } else {
+            pendingEnterFraming = true
+        }
+    }
+
+    private fun startFramingSession() {
+        lifecycleScope.launch {
+            val result = framingCamera.startFraming(
+                previewView,
+                object : FramingCameraController.PreviewReadyListener {
+                    override fun onPreviewReady(ready: Boolean) {
+                        runOnUiThread {
+                            if (currentState != ScanState.FRAMING) return@runOnUiThread
+                            previewReady = ready
+                            if (ready) {
+                                statusText.setText(R.string.status_framing_ready)
+                            } else {
+                                statusText.setText(R.string.status_framing)
+                            }
+                        }
+                    }
+                }
+            )
+
+            result.onSuccess {
+                updateFramingOverlayForPreview()
+            }
+
+            result.onFailure { error ->
+                Log.e(TAG, "Framing session failed, fallback to direct capture", error)
+                showToast("取景预览失败，使用直接拍照")
+                framingCamera.stop()
+                captureFallbackDirect()
+            }
+        }
+    }
+
+    private fun updateFramingOverlayForPreview() {
+        val transform = framingCamera.getPreviewTransform()
+        val rotation = transform?.rotationDegrees ?: 0
+        val portraitPreview = rotation == 0 || rotation == 180 || previewView.height >= previewView.width
+        framingOverlay.setPreviewPortrait(portraitPreview)
+    }
+
+    private fun cancelFraming() {
+        pendingEnterFraming = false
+        lifecycleScope.launch {
+            framingCamera.stop()
+            renderState(ScanState.READY)
+        }
+    }
+
+    private fun captureAndSend() {
+        val framingElapsed = System.currentTimeMillis() - framingEnteredAtMs
+        val canCapture = previewReady || framingElapsed >= FRAMING_READY_MS
+        if (!canCapture) {
+            showToast(getString(R.string.toast_wait_stabilize))
+            return
+        }
+
         renderState(ScanState.SCANNING)
 
         lifecycleScope.launch {
             try {
-                if (!bleServer.isConnected()) {
-                    showToast("手机未连接，请先在手机端点击「连接眼镜」")
+                val viewNorm = framingOverlay.getNormalizedFramingRect()
+                val captureResult = framingCamera.captureStill()
+                val captureInfo = captureResult.getOrElse { error ->
+                    Log.e(TAG, "Framed capture failed", error)
+                    showToast("拍照失败: ${error.message ?: "未知错误"}")
+                    framingCamera.stop()
                     renderState(ScanState.READY)
                     return@launch
                 }
 
-                val captureResult = cameraManager.capturePhotoJpeg()
-                val rawJpeg = captureResult.getOrElse { error ->
-                    Log.e(TAG, "Camera failed", error)
-                    val msg = error.message ?: "未知错误"
-                    showToast(
-                        if (msg.contains("超时")) "拍照超时，请重试"
-                        else "拍照失败: $msg"
-                    )
-                    renderState(ScanState.READY)
-                    return@launch
-                }
+                framingCamera.stop()
 
-                renderState(ScanState.CONNECTING)
-                statusText.text = "处理中..."
+                val cropRect = CameraCropMapper.mapNormalizedViewRectToCapture(
+                    viewNorm = viewNorm,
+                    viewWidth = previewView.width,
+                    viewHeight = previewView.height,
+                    previewTransform = captureInfo.previewTransform,
+                    captureSize = captureInfo.captureSize
+                )
+                Log.i(TAG, "Crop rect: $cropRect (viewNorm=$viewNorm)")
 
-                val processed = withContext(Dispatchers.Default) {
-                    ImageBleProcessor.prepareForBleTransfer(rawJpeg)
-                }
-
-                statusText.text = "发送中..."
-                showToast("发送中（${processed.outputSize / 1024}KB）…")
-
-                val sendResult = bleServer.sendJpeg(processed.jpegBytes)
-                sendResult.fold(
-                    onSuccess = {
-                        showToast("图片已发送，等待 AI 分析…")
-                        renderState(ScanState.WAITING)
-                    },
-                    onFailure = { error ->
-                        Log.e(TAG, "BLE send failed", error)
-                        showToast("发送失败: ${error.message}")
-                        renderState(ScanState.READY)
-                    }
+                processAndSend(
+                    captureInfo.jpegBytes,
+                    cropRect,
+                    captureInfo.previewTransform.rotationDegrees
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "Scan failed", e)
+                Log.e(TAG, "captureAndSend failed", e)
+                framingCamera.stop()
                 showToast("扫描失败: ${e.message}")
                 renderState(ScanState.READY)
             }
         }
+    }
+
+    private fun captureFallbackDirect() {
+        renderState(ScanState.SCANNING)
+        lifecycleScope.launch {
+            try {
+                val captureResult = fallbackCamera.capturePhotoJpeg()
+                val rawJpeg = captureResult.getOrElse { error ->
+                    showToast("拍照失败: ${error.message}")
+                    renderState(ScanState.READY)
+                    return@launch
+                }
+                processAndSend(rawJpeg, cropRect = null)
+            } catch (e: Exception) {
+                showToast("扫描失败: ${e.message}")
+                renderState(ScanState.READY)
+            }
+        }
+    }
+
+    private suspend fun processAndSend(
+        rawJpeg: ByteArray,
+        cropRect: NormalizedRect?,
+        outputRotationDegrees: Int? = null
+    ) {
+        renderState(ScanState.CONNECTING)
+        statusText.text = "处理中..."
+
+        val processed = withContext(Dispatchers.Default) {
+            ImageBleProcessor.prepareForBleTransfer(rawJpeg, cropRect, outputRotationDegrees)
+        }
+
+        statusText.text = "发送中..."
+        showToast("发送中（${processed.outputSize / 1024}KB）…")
+
+        val sendResult = bleServer.sendJpeg(processed.jpegBytes)
+        sendResult.fold(
+            onSuccess = {
+                showToast("图片已发送，等待 AI 分析…")
+                renderState(ScanState.WAITING)
+            },
+            onFailure = { error ->
+                Log.e(TAG, "BLE send failed", error)
+                showToast("发送失败: ${error.message}")
+                renderState(ScanState.READY)
+            }
+        )
     }
 
     private fun isPartialResult(card: BusinessCard): Boolean {
@@ -335,24 +509,36 @@ class MainActivity : AppCompatActivity() {
         if (state == ScanState.READY) {
             handler.removeCallbacksAndMessages(null)
             scrollView.scrollTo(0, 0)
+            pendingEnterFraming = false
+            previewReady = false
         }
         currentState = state
         when (state) {
             ScanState.READY -> {
+                framingContainer.visibility = View.GONE
+                contentPanel.visibility = View.VISIBLE
+                contentPanel.alpha = 1f
                 readyHint.visibility = View.VISIBLE
                 scanningHint.visibility = View.GONE
                 scanningHint.setText(R.string.hint_scanning)
                 resultPanel.visibility = View.GONE
                 statusText.setText(R.string.status_ready)
             }
+            ScanState.FRAMING -> {
+                framingContainer.visibility = View.VISIBLE
+                contentPanel.visibility = View.GONE
+                framingHint.setText(R.string.hint_framing)
+                statusText.setText(R.string.status_framing)
+            }
             ScanState.SCANNING -> {
-                readyHint.visibility = View.GONE
-                scanningHint.visibility = View.VISIBLE
-                scanningHint.setText(R.string.hint_scanning)
-                resultPanel.visibility = View.GONE
+                framingContainer.visibility = View.VISIBLE
+                contentPanel.visibility = View.GONE
+                framingHint.setText(R.string.hint_scanning)
                 statusText.setText(R.string.status_scanning)
             }
             ScanState.WAITING -> {
+                framingContainer.visibility = View.GONE
+                contentPanel.visibility = View.VISIBLE
                 readyHint.visibility = View.GONE
                 scanningHint.visibility = View.VISIBLE
                 resultPanel.visibility = View.GONE
@@ -360,16 +546,17 @@ class MainActivity : AppCompatActivity() {
                 statusText.setText(R.string.status_waiting_ai)
             }
             ScanState.RESULT -> {
+                framingContainer.visibility = View.GONE
+                contentPanel.visibility = View.VISIBLE
                 readyHint.visibility = View.GONE
                 scanningHint.visibility = View.GONE
                 resultPanel.visibility = View.VISIBLE
                 statusText.setText(R.string.status_result)
             }
             ScanState.CONNECTING -> {
-                readyHint.visibility = View.GONE
-                scanningHint.visibility = View.GONE
-                resultPanel.visibility = View.GONE
-                statusText.text = "连接中..."
+                framingContainer.visibility = View.VISIBLE
+                contentPanel.visibility = View.GONE
+                statusText.text = "处理中..."
             }
         }
     }

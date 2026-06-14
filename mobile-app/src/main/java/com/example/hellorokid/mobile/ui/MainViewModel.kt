@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.hellorokid.mobile.R
 import com.example.hellorokid.mobile.api.BackendApiService
 import com.example.hellorokid.mobile.ble.PhoneBleClient
 import com.example.hellorokid.mobile.data.BusinessCardEntity
@@ -13,8 +14,6 @@ import com.example.hellorokid.mobile.data.CardRepository
 import com.example.hellorokid.mobile.export.CardExportHelper
 import com.example.hellorokid.mobile.export.ImageSaveHelper
 import com.example.hellorokid.shared.data.BusinessCard
-import com.example.hellorokid.shared.image.ImagePostProcessor
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,14 +21,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
 
 class MainViewModel(
     private val application: Application,
     private val repository: CardRepository,
     private val bleClient: PhoneBleClient,
-    private val backendApi: BackendApiService = BackendApiService()
+    private val backendApi: BackendApiService = BackendApiService(
+        application.applicationContext
+    )
 ) : ViewModel() {
 
     val cards: StateFlow<List<BusinessCardEntity>> = repository.cards
@@ -55,7 +55,7 @@ class MainViewModel(
 
             override fun onConnected(deviceName: String) {
                 _connectionState.value = ConnectionState.CONNECTED
-                _message.value = "已连接到 $deviceName，等待扫描名片"
+                _message.value = application.getString(R.string.msg_connected_waiting, deviceName)
             }
 
             override fun onDisconnected() {
@@ -64,7 +64,7 @@ class MainViewModel(
 
             override fun onImageReceiving() {
                 _connectionState.value = ConnectionState.RECEIVING
-                _message.value = "正在接收眼镜传来的图片…"
+                _message.value = application.getString(R.string.msg_receiving_image)
             }
 
             override fun onImageReceived(bitmap: Bitmap, jpegBytes: ByteArray) {
@@ -74,7 +74,7 @@ class MainViewModel(
             override fun onImageReceiveTimeout() {
                 if (_connectionState.value == ConnectionState.RECEIVING) {
                     _connectionState.value = ConnectionState.CONNECTED
-                    _message.value = "接收图片超时，请重新拍照或断开重连"
+                    _message.value = application.getString(R.string.msg_receive_timeout)
                 }
             }
 
@@ -85,6 +85,12 @@ class MainViewModel(
         })
     }
 
+    private fun displayName(card: BusinessCard): String {
+        return card.name.ifBlank {
+            card.company.ifBlank { application.getString(R.string.card_new) }
+        }
+    }
+
     private fun onBleImageReceived(bitmap: Bitmap, jpegBytes: ByteArray) {
         val generation = scanGeneration.incrementAndGet()
         enrichJob?.cancel()
@@ -93,36 +99,73 @@ class MainViewModel(
             _connectionState.value = ConnectionState.RECEIVING
             Log.i("MainViewModel", "Received JPEG: ${jpegBytes.size} bytes, ${bitmap.width}x${bitmap.height}")
 
-            val enhanced = withContext(Dispatchers.Default) {
-                ImagePostProcessor.enhanceForOcr(bitmap)
-            }
-            val createdEnhanced = enhanced !== bitmap
-            val galleryJob = launch { saveEnhancedToGalleryAsync(enhanced) }
+            val galleryJob = launch { saveToGalleryAsync(bitmap) }
 
             try {
-                analyzeStaged(
-                    ocrBitmap = enhanced,
+                analyzeStagedFromJpeg(
+                    jpegBytes = jpegBytes,
                     generation = generation,
-                    syncToGlasses = true,
-                    enhanceForOcr = false
+                    syncToGlasses = true
                 )
             } finally {
                 galleryJob.join()
-                if (createdEnhanced) {
-                    enhanced.recycle()
-                }
             }
         }
     }
 
-    private suspend fun saveEnhancedToGalleryAsync(enhanced: Bitmap) {
-        val saveResult = ImageSaveHelper.saveBitmapToGallery(application, enhanced)
+    private suspend fun saveToGalleryAsync(bitmap: Bitmap) {
+        val saveResult = ImageSaveHelper.saveBitmapToGallery(application, bitmap)
         saveResult.fold(
             onSuccess = { path ->
-                _message.value = "图片已保存到相册（$path），正在识别…"
+                _message.value = application.getString(R.string.msg_image_saved_recognizing, path)
             },
             onFailure = { error ->
                 Log.w("MainViewModel", "Gallery save failed: ${error.message}")
+            }
+        )
+    }
+
+    private suspend fun analyzeStagedFromJpeg(
+        jpegBytes: ByteArray,
+        generation: Int,
+        syncToGlasses: Boolean
+    ) {
+        _connectionState.value = ConnectionState.ANALYZING
+
+        val extractResult = backendApi.extractBusinessCard(jpegBytes)
+        if (generation != scanGeneration.get()) return
+
+        extractResult.fold(
+            onSuccess = { contact ->
+                if (syncToGlasses) {
+                    val sendResult = bleClient.sendBusinessCardResult(contact)
+                    sendResult.onFailure { error ->
+                        Log.e("MainViewModel", "First sync to glasses failed: ${error.message}")
+                        _message.value = application.getString(
+                            R.string.msg_sync_glass_failed,
+                            error.message ?: application.getString(R.string.error_unknown)
+                        )
+                    }
+                }
+
+                _message.value = application.getString(
+                    R.string.msg_recognized_enriching,
+                    displayName(contact)
+                )
+
+                val cardId = repository.insert(contact)
+
+                enrichJob = viewModelScope.launch {
+                    enrichAndFinalize(contact, cardId, generation, syncToGlasses)
+                }
+            },
+            onFailure = { error ->
+                _connectionState.value = ConnectionState.CONNECTED
+                val msg = error.message ?: application.getString(R.string.error_unknown)
+                _message.value = application.getString(R.string.msg_extract_failed, msg)
+                if (syncToGlasses) {
+                    bleClient.sendResultError(msg)
+                }
             }
         )
     }
@@ -144,12 +187,17 @@ class MainViewModel(
                     val sendResult = bleClient.sendBusinessCardResult(contact)
                     sendResult.onFailure { error ->
                         Log.e("MainViewModel", "First sync to glasses failed: ${error.message}")
-                        _message.value = "联系信息同步眼镜失败: ${error.message}"
+                        _message.value = application.getString(
+                            R.string.msg_sync_glass_failed,
+                            error.message ?: application.getString(R.string.error_unknown)
+                        )
                     }
                 }
 
-                val displayName = contact.name.ifBlank { contact.company.ifBlank { "新名片" } }
-                _message.value = "已识别 $displayName，正在补充情报…"
+                _message.value = application.getString(
+                    R.string.msg_recognized_enriching,
+                    displayName(contact)
+                )
 
                 val cardId = repository.insert(contact)
 
@@ -159,8 +207,8 @@ class MainViewModel(
             },
             onFailure = { error ->
                 _connectionState.value = ConnectionState.CONNECTED
-                val msg = error.message ?: "未知错误"
-                _message.value = "识别失败: $msg"
+                val msg = error.message ?: application.getString(R.string.error_unknown)
+                _message.value = application.getString(R.string.msg_extract_failed, msg)
                 if (syncToGlasses) {
                     bleClient.sendResultError(msg)
                 }
@@ -187,14 +235,19 @@ class MainViewModel(
                     }
                 }
                 _connectionState.value = ConnectionState.CONNECTED
-                val name = fullCard.name.ifBlank { fullCard.company.ifBlank { "新名片" } }
-                _message.value = "已保存 $name，情报已同步到眼镜"
+                _message.value = application.getString(
+                    R.string.msg_saved_synced,
+                    displayName(fullCard)
+                )
             },
             onFailure = { error ->
                 _connectionState.value = ConnectionState.CONNECTED
-                val name = contact.name.ifBlank { contact.company.ifBlank { "新名片" } }
-                val msg = error.message ?: "未知错误"
-                _message.value = "已保存 $name（情报补充失败: $msg）"
+                val msg = error.message ?: application.getString(R.string.error_unknown)
+                _message.value = application.getString(
+                    R.string.msg_saved_enrich_failed,
+                    displayName(contact),
+                    msg
+                )
                 Log.w("MainViewModel", "Enrich failed, contact already saved: $msg")
             }
         )
@@ -213,7 +266,7 @@ class MainViewModel(
         enrichJob?.cancel()
         bleClient.disconnect()
         _connectionState.value = ConnectionState.DISCONNECTED
-        _message.value = "已断开与眼镜的连接"
+        _message.value = application.getString(R.string.msg_disconnected)
     }
 
     fun analyzeImage(bitmap: Bitmap) {
@@ -234,8 +287,10 @@ class MainViewModel(
 
             extractResult.fold(
                 onSuccess = { contact ->
-                    val displayName = contact.name.ifBlank { contact.company.ifBlank { "新名片" } }
-                    _message.value = "已识别 $displayName，正在补充情报…"
+                    _message.value = application.getString(
+                        R.string.msg_recognized_enriching,
+                        displayName(contact)
+                    )
 
                     val cardId = repository.insert(contact)
 
@@ -249,7 +304,10 @@ class MainViewModel(
                 },
                 onFailure = { error ->
                     _connectionState.value = ConnectionState.CONNECTED
-                    _message.value = "识别失败: ${error.message ?: "未知错误"}"
+                    _message.value = application.getString(
+                        R.string.msg_extract_failed,
+                        error.message ?: application.getString(R.string.error_unknown)
+                    )
                 }
             )
         }
@@ -260,7 +318,7 @@ class MainViewModel(
             try {
                 val all = repository.getAll()
                 if (all.isEmpty()) {
-                    onResult(Result.failure(IllegalStateException("暂无名片可导出")))
+                    onResult(Result.failure(IllegalStateException(application.getString(R.string.export_no_cards))))
                     return@launch
                 }
                 onResult(Result.success(CardExportHelper.buildVCardContent(all)))
@@ -275,10 +333,10 @@ class MainViewModel(
             try {
                 val all = repository.getAll()
                 if (all.isEmpty()) {
-                    onResult(Result.failure(IllegalStateException("暂无名片可导出")))
+                    onResult(Result.failure(IllegalStateException(application.getString(R.string.export_no_cards))))
                     return@launch
                 }
-                onResult(Result.success(CardExportHelper.buildCsvContent(all)))
+                onResult(Result.success(CardExportHelper.buildCsvContent(application, all)))
             } catch (e: Exception) {
                 onResult(Result.failure(e))
             }

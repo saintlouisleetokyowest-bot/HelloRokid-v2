@@ -1,14 +1,18 @@
 <resources>
     <string name="app_name">RokidCard</string>
     <string name="title">RokidCard</string>
-    <string name="hint_scan">名片贴左镜框前10cm\n按 OK 扫描</string>
-    <string name="hint_scanning">对焦中，请持稳…</string>
+    <string name="hint_scan">左镜框前约 40cm 持名片\n按 OK 进入取景</string>
+    <string name="hint_framing">名片放进绿框内（约 40cm，定焦镜头）\n实际拍摄范围比绿框略大</string>
+    <string name="hint_scanning">拍摄中，请持稳…</string>
     <string name="hint_waiting_ai">Waiting for AI result…</string>
-    <string name="status_ready">左镜框前10cm，按 OK 拍照</string>
-    <string name="status_scanning">对焦中，请持稳…</string>
+    <string name="status_ready">左镜框前约 40cm，按 OK 取景</string>
+    <string name="status_framing">对准绿框，持稳后按 OK 拍摄</string>
+    <string name="status_framing_ready">曝光已稳定，按 OK 拍摄</string>
+    <string name="status_scanning">拍摄中，请持稳…</string>
     <string name="status_waiting_ai">Waiting for phone AI…</string>
     <string name="status_result">Analysis complete — press OK to scan again</string>
     <string name="status_result_partial">Contact ready — enriching intelligence…</string>
+    <string name="toast_wait_stabilize">曝光稳定中，请稍候…</string>
     <string name="toast_contact_ready">Contact recognized</string>
     <string name="toast_analysis_complete">AI analysis complete</string>
     <string name="toast_intel_updated">Intelligence updated</string>

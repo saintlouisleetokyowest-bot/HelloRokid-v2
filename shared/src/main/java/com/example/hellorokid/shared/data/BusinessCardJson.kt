@@ -19,6 +19,12 @@ object BusinessCardJson {
             .put("email", card.email)
             .put("address", card.address)
             .put("website", card.website)
+            .put("sourceLanguage", card.sourceLanguage)
+            .put("nameReading", card.nameReading)
+            .put("companyNameEn", card.companyNameEn)
+            .put("titleLocalized", card.titleLocalized)
+            .put("departmentLocalized", card.departmentLocalized)
+            .put("addressEn", card.addressEn)
             .put("industry", card.industry)
             .put("companySize", card.companySize)
             .put("revenue", card.revenue)
@@ -53,6 +59,12 @@ object BusinessCardJson {
             email = obj.optString("email", ""),
             address = obj.optString("address", ""),
             website = obj.optString("website", ""),
+            sourceLanguage = obj.optString("sourceLanguage", ""),
+            nameReading = obj.optString("nameReading", ""),
+            companyNameEn = obj.optString("companyNameEn", ""),
+            titleLocalized = obj.optString("titleLocalized", ""),
+            departmentLocalized = obj.optString("departmentLocalized", ""),
+            addressEn = obj.optString("addressEn", ""),
             industry = obj.optString("industry", ""),
             companySize = obj.optString("companySize", ""),
             revenue = obj.optString("revenue", ""),

@@ -1,7 +1,7 @@
 package com.example.hellorokid.mobile
 
-import android.Manifest
 import android.content.Intent
+import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -31,6 +31,7 @@ import com.example.hellorokid.mobile.ui.CardDetailActivity
 import com.example.hellorokid.mobile.ui.CardListAdapter
 import com.example.hellorokid.mobile.ui.ConnectionState
 import com.example.hellorokid.mobile.ui.MainViewModel
+import com.example.hellorokid.mobile.ui.SettingsActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.snackbar.Snackbar
@@ -273,17 +274,17 @@ class MainActivity : AppCompatActivity() {
             if (bitmap != null) {
                 viewModel.analyzeImage(bitmap)
             } else {
-                showSnackbar("无法读取图片")
+                showSnackbar(getString(R.string.error_read_image))
             }
         } catch (e: Exception) {
-            showSnackbar("读取图片失败: ${e.message}")
+            showSnackbar(getString(R.string.error_read_image_detail, e.message ?: ""))
         }
     }
 
     private fun confirmDeleteCard(card: BusinessCardEntity) {
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_card_title)
-            .setMessage(getString(R.string.delete_card_confirm, card.name.ifBlank { "未命名" }))
+            .setMessage(getString(R.string.delete_card_confirm, card.name.ifBlank { getString(R.string.card_unnamed) }))
             .setPositiveButton(R.string.delete) { _, _ ->
                 lifecycleScope.launch {
                     (application as HelloRokidApplication).cardRepository.deleteById(card.id)
@@ -309,6 +310,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
+                true
+            }
             R.id.action_export_vcard -> {
                 exportVCard()
                 true
@@ -331,7 +336,7 @@ class MainActivity : AppCompatActivity() {
                 onSuccess = { content ->
                     shareExport(content, "text/vcard", "vcf")
                 },
-                onFailure = { showSnackbar(it.message ?: "导出失败") }
+                onFailure = { showSnackbar(it.message ?: getString(R.string.export_failed)) }
             )
         }
     }
@@ -342,7 +347,7 @@ class MainActivity : AppCompatActivity() {
                 onSuccess = { content ->
                     shareExport(content, "text/csv", "csv")
                 },
-                onFailure = { showSnackbar(it.message ?: "导出失败") }
+                onFailure = { showSnackbar(it.message ?: getString(R.string.export_failed)) }
             )
         }
     }
@@ -355,7 +360,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent.createChooser(shareIntent, getString(R.string.export_share_title)))
             showSnackbar(getString(R.string.export_success))
         } catch (e: Exception) {
-            showSnackbar("导出失败: ${e.message}")
+            showSnackbar(getString(R.string.export_failed) + ": ${e.message}")
         }
     }
 

@@ -104,19 +104,38 @@ class CloudswayClient:
         return merge_search_pages(all_pages)
 
 
+def _source_language(contact: dict[str, str]) -> str:
+    value = contact.get("sourceLanguage", "").strip().lower()
+    if value.startswith("zh"):
+        return "zh"
+    if value.startswith("ja"):
+        return "ja"
+    if value.startswith("en"):
+        return "en"
+    return value.split("-", 1)[0] if value else ""
+
+
 def build_search_queries(contact: dict[str, str]) -> list[str]:
     """Build search queries from extracted contact info."""
     company = contact.get("company", "").strip()
+    company_en = contact.get("companyNameEn", "").strip()
     website = contact.get("website", "").strip()
     name = contact.get("name", "").strip()
     title = contact.get("title", "").strip()
+    source_lang = _source_language(contact)
 
     queries: list[str] = []
-    if company:
+    search_company = company_en or company
+    if search_company:
         queries.append(
-            f'"{company}" company industry business revenue employees partners news'
+            f'"{search_company}" company industry business revenue employees partners news'
         )
-        queries.append(f'"{company}" 公司 行业 业务 规模 融资 合作伙伴 最新动态')
+        if source_lang == "ja":
+            queries.append(f'"{company or search_company}" 会社 業界 事業 従業員 ニュース')
+        elif source_lang == "zh":
+            queries.append(f'"{company or search_company}" 公司 行业 业务 规模 融资 合作伙伴 最新动态')
+        elif company and company != search_company:
+            queries.append(f'"{company}" 公司 行业 业务 规模 融资 合作伙伴 最新动态')
     elif website:
         domain = extract_domain(website)
         if domain:

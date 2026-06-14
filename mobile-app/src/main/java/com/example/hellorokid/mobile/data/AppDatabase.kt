@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [BusinessCardEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +25,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE business_cards ADD COLUMN sourceLanguage TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE business_cards ADD COLUMN nameReading TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE business_cards ADD COLUMN companyNameEn TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE business_cards ADD COLUMN titleLocalized TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE business_cards ADD COLUMN departmentLocalized TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE business_cards ADD COLUMN addressEn TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -35,7 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "rokid_cards.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }
             }
         }

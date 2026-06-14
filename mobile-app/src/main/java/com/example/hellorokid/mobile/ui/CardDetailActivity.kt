@@ -62,7 +62,7 @@ class CardDetailActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val card = repository.getById(cardId)
             if (card == null) {
-                Toast.makeText(this@CardDetailActivity, "名片不存在", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@CardDetailActivity, R.string.error_card_not_found, Toast.LENGTH_SHORT).show()
                 finish()
                 return@launch
             }
@@ -72,19 +72,19 @@ class CardDetailActivity : AppCompatActivity() {
     }
 
     private fun bindCard(card: BusinessCardEntity) {
-        supportActionBar?.title = card.name.ifBlank { "名片详情" }
+        supportActionBar?.title = card.name.ifBlank { getString(R.string.card_detail_title) }
         findViewById<TextView>(R.id.detailScannedAt).text =
             getString(R.string.detail_scanned_at, dateFormat.format(Date(card.scannedAt)))
 
-        setField(R.id.detailName, card.name)
-        setField(R.id.detailTitle, card.title)
-        setField(R.id.detailDepartment, card.department)
-        setField(R.id.detailCompany, card.company)
+        setField(R.id.detailName, CardDisplayHelper.withSecondary(card.name, card.nameReading))
+        setField(R.id.detailTitle, CardDisplayHelper.withSecondary(card.title, card.titleLocalized))
+        setField(R.id.detailDepartment, CardDisplayHelper.withSecondary(card.department, card.departmentLocalized))
+        setField(R.id.detailCompany, CardDisplayHelper.withSecondary(card.company, card.companyNameEn))
         setField(R.id.detailPhone, card.phone)
         setField(R.id.detailMobile, card.mobile)
         setField(R.id.detailFax, card.fax)
         setField(R.id.detailEmail, card.email)
-        setField(R.id.detailAddress, card.address)
+        setField(R.id.detailAddress, CardDisplayHelper.withSecondary(card.address, card.addressEn))
         setField(R.id.detailWebsite, card.website)
         setField(R.id.detailIndustry, card.industry)
         setField(R.id.detailCompanySize, card.companySize)
@@ -98,7 +98,7 @@ class CardDetailActivity : AppCompatActivity() {
     }
 
     private fun setField(viewId: Int, value: String) {
-        findViewById<TextView>(viewId).text = value.ifBlank { "—" }
+        findViewById<TextView>(viewId).text = value.ifBlank { getString(R.string.field_empty) }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {

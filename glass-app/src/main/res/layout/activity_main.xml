@@ -7,7 +7,40 @@
     android:focusable="true"
     android:focusableInTouchMode="true">
 
+    <!-- 取景层：相机 preview + 绿框（FRAMING 时显示） -->
+    <FrameLayout
+        android:id="@+id/framingContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <TextureView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <com.example.hellorokid.glass.ui.CardFramingOverlay
+            android:id="@+id/framingOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/framingHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="12dp"
+            android:background="#99000000"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:text="@string/hint_framing"
+            android:textColor="@color/rokid_green"
+            android:textSize="17sp" />
+
+    </FrameLayout>
+
     <LinearLayout
+        android:id="@+id/contentPanel"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:gravity="center_horizontal"

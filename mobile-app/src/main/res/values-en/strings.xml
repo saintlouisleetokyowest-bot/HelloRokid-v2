@@ -1,0 +1,105 @@
+<resources>
+    <string name="app_name">Rokid Card Manager</string>
+    <string name="mobile_app_title">Rokid Card Manager</string>
+
+    <!-- Settings -->
+    <string name="action_settings">Settings</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_language_section">App language</string>
+    <string name="settings_language_hint">UI and AI intelligence output follow this setting. Original card text is preserved.</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_english">English</string>
+    <string name="language_japanese">日本語</string>
+
+    <!-- Connection -->
+    <string name="status_disconnected">Glasses not connected</string>
+    <string name="status_scanning">Connecting…</string>
+    <string name="status_connected">Glasses connected</string>
+    <string name="status_analyzing">Analyzing…</string>
+    <string name="status_receiving">Receiving image…</string>
+    <string name="status_hint_disconnected">Connect Rokid Glass to receive scanned business cards</string>
+    <string name="status_hint_connected">Wait for a scan on glasses, or import a card image from gallery</string>
+    <string name="status_hint_receiving">Receiving card image from glasses via Bluetooth…</string>
+    <string name="status_hint_analyzing">Recognizing card; contact info will sync first…</string>
+    <string name="status_hint_enriching">Contact synced; enriching company intelligence…</string>
+    <string name="card_count_badge">%1$d cards</string>
+
+    <!-- Actions -->
+    <string name="action_connect_glass">Connect glasses</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_import_image">Import image</string>
+    <string name="action_export_vcard">Export vCard</string>
+    <string name="action_export_csv">Export CSV</string>
+    <string name="action_call">Call</string>
+    <string name="action_email">Email</string>
+
+    <!-- List -->
+    <string name="section_my_cards">My cards</string>
+    <string name="empty_cards_title">No cards yet</string>
+    <string name="empty_cards_subtitle">Scan with glasses or import a card image from gallery</string>
+    <string name="card_unnamed">Unnamed</string>
+    <string name="card_new">New card</string>
+    <string name="card_detail_title">Card details</string>
+    <string name="list_name_unknown">Name unknown</string>
+    <string name="list_title_unknown">Title unknown</string>
+    <string name="list_company_unknown">Company unknown</string>
+
+    <!-- Detail -->
+    <string name="detail_scanned_at">Scanned: %1$s</string>
+    <string name="section_contact">Contact</string>
+    <string name="section_company_intel">Company intel</string>
+    <string name="section_business_intel">Business analysis</string>
+    <string name="section_opportunity">Opportunities</string>
+    <string name="label_name">Name</string>
+    <string name="label_title">Title</string>
+    <string name="label_department">Department</string>
+    <string name="label_company">Company</string>
+    <string name="label_phone">Phone</string>
+    <string name="label_mobile">Mobile</string>
+    <string name="label_fax">Fax</string>
+    <string name="label_email">Email</string>
+    <string name="label_address">Address</string>
+    <string name="label_website">Website</string>
+    <string name="label_industry">Industry</string>
+    <string name="label_company_size">Company size</string>
+    <string name="label_revenue">Revenue estimate</string>
+    <string name="label_core_business">Core business</string>
+    <string name="label_markets">Markets</string>
+    <string name="label_partners">Partners</string>
+    <string name="label_opportunities">Opportunities</string>
+    <string name="label_investment">Partnership interest</string>
+    <string name="label_timing">Timing</string>
+    <string name="field_empty">—</string>
+
+    <!-- Messages -->
+    <string name="no_phone">No phone number</string>
+    <string name="no_email">No email address</string>
+    <string name="delete">Delete</string>
+    <string name="delete_card_title">Delete card</string>
+    <string name="delete_card_message">Delete this card? This cannot be undone.</string>
+    <string name="card_deleted">Card deleted</string>
+    <string name="delete_card_confirm">Delete \"%1$s\"?</string>
+    <string name="export_success">Exported to Downloads</string>
+    <string name="export_share_title">Share export file</string>
+    <string name="export_failed">Export failed</string>
+    <string name="export_no_cards">No cards to export</string>
+    <string name="permission_bluetooth_required">Bluetooth permission is required to connect glasses</string>
+    <string name="permission_image_required">Gallery permission is required to import images</string>
+    <string name="error_read_image">Unable to read image</string>
+    <string name="error_read_image_detail">Failed to read image: %1$s</string>
+    <string name="error_unknown">Unknown error</string>
+    <string name="error_card_not_found">Card not found</string>
+    <string name="msg_connected_waiting">Connected to %1$s, waiting for scan</string>
+    <string name="msg_receiving_image">Receiving image from glasses…</string>
+    <string name="msg_receive_timeout">Image receive timed out. Retake photo or reconnect.</string>
+    <string name="msg_image_saved_recognizing">Saved to gallery (%1$s), recognizing…</string>
+    <string name="msg_sync_glass_failed">Failed to sync contact to glasses: %1$s</string>
+    <string name="msg_recognized_enriching">Recognized %1$s, enriching intelligence…</string>
+    <string name="msg_extract_failed">Recognition failed: %1$s</string>
+    <string name="msg_saved_synced">Saved %1$s, intelligence synced to glasses</string>
+    <string name="msg_saved_enrich_failed">Saved %1$s (intelligence failed: %2$s)</string>
+    <string name="msg_disconnected">Disconnected from glasses</string>
+
+    <!-- CSV export header -->
+    <string name="csv_header">Name,Name reading,Title,Title (UI lang),Department,Department (UI lang),Company,Company (English),Phone,Mobile,Fax,Email,Address,Address (English),Website,Industry,Size,Revenue,Core business,Markets,Partners,Opportunities,Partnership interest,Timing,Scanned at</string>
+</resources>

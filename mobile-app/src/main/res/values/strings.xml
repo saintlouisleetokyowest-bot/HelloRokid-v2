@@ -1,6 +1,15 @@
 <resources>
-    <string name="app_name">Rokid Card Manager</string>
-    <string name="mobile_app_title">Rokid Card Manager</string>
+    <string name="app_name">Rokid 名片管理</string>
+    <string name="mobile_app_title">Rokid 名片管理</string>
+
+    <!-- Settings -->
+    <string name="action_settings">设置</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_language_section">界面语言</string>
+    <string name="settings_language_hint">切换后 App 界面与 AI 情报输出语言将同步更新。名片原文不会被翻译。</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_english">English</string>
+    <string name="language_japanese">日本語</string>
 
     <!-- Connection -->
     <string name="status_disconnected">未连接眼镜</string>
@@ -28,6 +37,12 @@
     <string name="section_my_cards">我的名片</string>
     <string name="empty_cards_title">还没有名片</string>
     <string name="empty_cards_subtitle">连接眼镜扫描，或从相册导入名片图片</string>
+    <string name="card_unnamed">未命名</string>
+    <string name="card_new">新名片</string>
+    <string name="card_detail_title">名片详情</string>
+    <string name="list_name_unknown">未识别姓名</string>
+    <string name="list_title_unknown">职位未知</string>
+    <string name="list_company_unknown">公司未知</string>
 
     <!-- Detail -->
     <string name="detail_scanned_at">扫描时间：%1$s</string>
@@ -54,6 +69,7 @@
     <string name="label_opportunities">潜在商机</string>
     <string name="label_investment">合作意向</string>
     <string name="label_timing">时机判断</string>
+    <string name="field_empty">—</string>
 
     <!-- Messages -->
     <string name="no_phone">暂无电话号码</string>
@@ -65,6 +81,25 @@
     <string name="delete_card_confirm">删除「%1$s」？</string>
     <string name="export_success">已导出到下载目录</string>
     <string name="export_share_title">分享导出文件</string>
+    <string name="export_failed">导出失败</string>
+    <string name="export_no_cards">暂无名片可导出</string>
     <string name="permission_bluetooth_required">需要蓝牙权限才能连接眼镜</string>
     <string name="permission_image_required">需要相册权限才能导入图片</string>
+    <string name="error_read_image">无法读取图片</string>
+    <string name="error_read_image_detail">读取图片失败: %1$s</string>
+    <string name="error_unknown">未知错误</string>
+    <string name="error_card_not_found">名片不存在</string>
+    <string name="msg_connected_waiting">已连接到 %1$s，等待扫描名片</string>
+    <string name="msg_receiving_image">正在接收眼镜传来的图片…</string>
+    <string name="msg_receive_timeout">接收图片超时，请重新拍照或断开重连</string>
+    <string name="msg_image_saved_recognizing">图片已保存到相册（%1$s），正在识别…</string>
+    <string name="msg_sync_glass_failed">联系信息同步眼镜失败: %1$s</string>
+    <string name="msg_recognized_enriching">已识别 %1$s，正在补充情报…</string>
+    <string name="msg_extract_failed">识别失败: %1$s</string>
+    <string name="msg_saved_synced">已保存 %1$s，情报已同步到眼镜</string>
+    <string name="msg_saved_enrich_failed">已保存 %1$s（情报补充失败: %2$s）</string>
+    <string name="msg_disconnected">已断开与眼镜的连接</string>
+
+    <!-- CSV export header -->
+    <string name="csv_header">姓名,姓名读音,职位,职位(界面语言),部门,部门(界面语言),公司,英文公司名,电话,手机,传真,邮箱,地址,英文地址,网站,行业,规模,营收,核心业务,市场,合作伙伴,商机,合作意向,时机,扫描时间</string>
 </resources>

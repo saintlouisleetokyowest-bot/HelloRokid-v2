@@ -1,0 +1,105 @@
+<resources>
+    <string name="app_name">Rokid 名刺管理</string>
+    <string name="mobile_app_title">Rokid 名刺管理</string>
+
+    <!-- Settings -->
+    <string name="action_settings">設定</string>
+    <string name="settings_title">設定</string>
+    <string name="settings_language_section">表示言語</string>
+    <string name="settings_language_hint">UI と AI インテリジェンス出力がこの設定に従います。名刺原文は翻訳しません。</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_english">English</string>
+    <string name="language_japanese">日本語</string>
+
+    <!-- Connection -->
+    <string name="status_disconnected">メガネ未接続</string>
+    <string name="status_scanning">接続中…</string>
+    <string name="status_connected">メガネ接続済み</string>
+    <string name="status_analyzing">AI 分析中…</string>
+    <string name="status_receiving">画像受信中…</string>
+    <string name="status_hint_disconnected">Rokid Glass に接続して名刺スキャンを受信</string>
+    <string name="status_hint_connected">メガネでのスキャン待ち、またはギャラリーから名刺画像をインポート</string>
+    <string name="status_hint_receiving">Bluetooth でメガネから名刺画像を受信中…</string>
+    <string name="status_hint_analyzing">名刺を認識中。完了後、まず連絡先情報を同期…</string>
+    <string name="status_hint_enriching">連絡先同期済み。会社情報を補完中…</string>
+    <string name="card_count_badge">名刺 %1$d 枚</string>
+
+    <!-- Actions -->
+    <string name="action_connect_glass">メガネ接続</string>
+    <string name="action_disconnect">切断</string>
+    <string name="action_import_image">画像インポート</string>
+    <string name="action_export_vcard">vCard エクスポート</string>
+    <string name="action_export_csv">CSV エクスポート</string>
+    <string name="action_call">電話</string>
+    <string name="action_email">メール</string>
+
+    <!-- List -->
+    <string name="section_my_cards">名刺一覧</string>
+    <string name="empty_cards_title">名刺がありません</string>
+    <string name="empty_cards_subtitle">メガネでスキャンするか、ギャラリーから名刺画像をインポート</string>
+    <string name="card_unnamed">名称なし</string>
+    <string name="card_new">新規名刺</string>
+    <string name="card_detail_title">名刺詳細</string>
+    <string name="list_name_unknown">氏名不明</string>
+    <string name="list_title_unknown">役職不明</string>
+    <string name="list_company_unknown">会社不明</string>
+
+    <!-- Detail -->
+    <string name="detail_scanned_at">スキャン日時：%1$s</string>
+    <string name="section_contact">連絡先</string>
+    <string name="section_company_intel">会社情報</string>
+    <string name="section_business_intel">事業分析</string>
+    <string name="section_opportunity">ビジネス機会</string>
+    <string name="label_name">氏名</string>
+    <string name="label_title">役職</string>
+    <string name="label_department">部署</string>
+    <string name="label_company">会社</string>
+    <string name="label_phone">電話</string>
+    <string name="label_mobile">携帯</string>
+    <string name="label_fax">FAX</string>
+    <string name="label_email">メール</string>
+    <string name="label_address">住所</string>
+    <string name="label_website">Webサイト</string>
+    <string name="label_industry">業界</string>
+    <string name="label_company_size">会社規模</string>
+    <string name="label_revenue">売上推定</string>
+    <string name="label_core_business">コア事業</string>
+    <string name="label_markets">市場</string>
+    <string name="label_partners">パートナー</string>
+    <string name="label_opportunities">潜在機会</string>
+    <string name="label_investment">協業意向</string>
+    <string name="label_timing">タイミング</string>
+    <string name="field_empty">—</string>
+
+    <!-- Messages -->
+    <string name="no_phone">電話番号がありません</string>
+    <string name="no_email">メールアドレスがありません</string>
+    <string name="delete">削除</string>
+    <string name="delete_card_title">名刺を削除</string>
+    <string name="delete_card_message">この名刺を削除しますか？元に戻せません。</string>
+    <string name="card_deleted">名刺を削除しました</string>
+    <string name="delete_card_confirm">「%1$s」を削除しますか？</string>
+    <string name="export_success">ダウンロードにエクスポートしました</string>
+    <string name="export_share_title">エクスポートファイルを共有</string>
+    <string name="export_failed">エクスポート失敗</string>
+    <string name="export_no_cards">エクスポートする名刺がありません</string>
+    <string name="permission_bluetooth_required">メガネ接続には Bluetooth 権限が必要です</string>
+    <string name="permission_image_required">画像インポートにはギャラリー権限が必要です</string>
+    <string name="error_read_image">画像を読み取れません</string>
+    <string name="error_read_image_detail">画像読み取り失敗: %1$s</string>
+    <string name="error_unknown">不明なエラー</string>
+    <string name="error_card_not_found">名刺が見つかりません</string>
+    <string name="msg_connected_waiting">%1$s に接続しました。スキャン待ち</string>
+    <string name="msg_receiving_image">メガネから画像を受信中…</string>
+    <string name="msg_receive_timeout">画像受信がタイムアウトしました。再撮影または再接続してください</string>
+    <string name="msg_image_saved_recognizing">ギャラリーに保存（%1$s）、認識中…</string>
+    <string name="msg_sync_glass_failed">メガネへの連絡先同期失敗: %1$s</string>
+    <string name="msg_recognized_enriching">%1$s を認識、情報補完中…</string>
+    <string name="msg_extract_failed">認識失敗: %1$s</string>
+    <string name="msg_saved_synced">%1$s を保存、情報をメガネに同期しました</string>
+    <string name="msg_saved_enrich_failed">%1$s を保存（情報補完失敗: %2$s）</string>
+    <string name="msg_disconnected">メガネとの接続を切断しました</string>
+
+    <!-- CSV export header -->
+    <string name="csv_header">氏名,氏名読み,役職,役職(UI言語),部署,部署(UI言語),会社,英語社名,電話,携帯,FAX,メール,住所,英語住所,Webサイト,業界,規模,売上,コア事業,市場,パートナー,潜在機会,協業意向,タイミング,スキャン日時</string>
+</resources>

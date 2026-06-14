@@ -25,8 +25,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
 /**
- * Rokid 眼镜相机：Camera2 完整采集管线（preview 预热 → AE/AF 收敛 → 静态拍照）。
- * 后处理（旋转、灰度、压缩）在 [com.example.hellorokid.shared.image.ImageBleProcessor]。
+ * Rokid 眼镜相机：Camera2 采集管线（preview 预热 → AE 稳定 → 静态拍照）。
+ * Rokid 为定焦镜头，无可用 AF；近距「对焦」脉冲已跳过。
  */
 class RokidCameraManager(private val context: Context) {
 
@@ -37,6 +37,7 @@ class RokidCameraManager(private val context: Context) {
         private const val MIN_PREVIEW_FRAMES = 9
         private const val MAX_WARMUP_FRAMES = 16
         private const val WARMUP_TIMEOUT_MS = 3_000L
+        private const val AE_SETTLE_MS = 350L
         private const val NEAR_FOCUS_WAIT_MS = 900L
     }
 
@@ -246,16 +247,12 @@ class RokidCameraManager(private val context: Context) {
         }
 
         val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
-        val supportsContinuousAf = afModes.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+        val fixedFocus = CameraAfHelper.isFixedFocusLens(characteristics)
 
         val previewBuilder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
             addTarget(imageReader!!.surface)
             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-            if (supportsContinuousAf) {
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-            } else if (afModes.contains(CaptureRequest.CONTROL_AF_MODE_AUTO)) {
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
-            }
+            CameraAfHelper.applyPreviewAf(this, afModes)
             set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
             set(CaptureRequest.JPEG_QUALITY, 90.toByte())
         }
@@ -279,14 +276,16 @@ class RokidCameraManager(private val context: Context) {
                         previewFrames++
                         val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
                         val afState = result.get(CaptureResult.CONTROL_AF_STATE)
-                        val aeReady = aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED
-                            || aeState == CaptureResult.CONTROL_AE_STATE_LOCKED
-                        val afReady = afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED
-                            || afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
-                            || !supportsContinuousAf
+                        val aeReady = CameraAfHelper.isAeReady(aeState)
+                        val afReady = if (fixedFocus) {
+                            true
+                        } else {
+                            afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED
+                                || afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
+                        }
 
                         if (previewFrames >= MIN_PREVIEW_FRAMES && aeReady && afReady) {
-                            triggerStillOnce("AE/AF converged at frame $previewFrames")
+                            triggerStillOnce("AE ready at frame $previewFrames (fixedFocus=$fixedFocus)")
                             return
                         }
 
@@ -330,11 +329,16 @@ class RokidCameraManager(private val context: Context) {
             session.stopRepeating()
             session.abortCaptures()
         } catch (e: Exception) {
-            Log.w(TAG, "Stop repeating before near focus", e)
+            Log.w(TAG, "Stop repeating before still", e)
         }
 
-        val minFocusDistance = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)
-        Log.d(TAG, "Min focus distance: ${minFocusDistance ?: "unknown"} diopters")
+        if (CameraAfHelper.isFixedFocusLens(characteristics)) {
+            Log.i(TAG, "Fixed-focus lens: skip AF, AE settle ${AE_SETTLE_MS}ms")
+            handler.postDelayed({
+                triggerStillCapture(session, characteristics, photoResult)
+            }, AE_SETTLE_MS)
+            return
+        }
 
         val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
         val supportsMacro = afModes.contains(CaptureRequest.CONTROL_AF_MODE_MACRO)
@@ -355,18 +359,10 @@ class RokidCameraManager(private val context: Context) {
             addTarget(imageReader!!.surface)
             set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
             set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-            when {
-                supportsMacro -> {
-                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_MACRO)
-                }
-                supportsContinuousAf -> {
-                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                }
-                afModes.contains(CaptureRequest.CONTROL_AF_MODE_AUTO) -> {
-                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_AUTO)
-                }
+            CameraAfHelper.applyStillAf(this, afModes)
+            if (CameraAfHelper.shouldTriggerAf(afModes)) {
+                set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
             }
-            set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
         }
 
         handler.postDelayed({ fireStill("near focus timeout ${NEAR_FOCUS_WAIT_MS}ms") }, NEAR_FOCUS_WAIT_MS)
@@ -415,17 +411,12 @@ class RokidCameraManager(private val context: Context) {
             awaitingStillJpeg = true
 
             val afModes = characteristics.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
-            val supportsMacro = afModes.contains(CaptureRequest.CONTROL_AF_MODE_MACRO)
 
             val builder = session.device.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(imageReader!!.surface)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                if (supportsMacro) {
-                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_MACRO)
-                } else if (afModes.contains(CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)) {
-                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                }
+                CameraAfHelper.applyStillAf(this, afModes)
                 set(CaptureRequest.JPEG_QUALITY, 92.toByte())
             }
 

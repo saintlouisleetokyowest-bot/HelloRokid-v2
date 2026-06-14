@@ -3,6 +3,13 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="@string/action_settings"
+        app:iconTint="@color/rokid_green"
+        app:showAsAction="ifRoom" />
+
+    <item
         android:id="@+id/action_export_vcard"
         android:title="@string/action_export_vcard"
         app:showAsAction="never" />

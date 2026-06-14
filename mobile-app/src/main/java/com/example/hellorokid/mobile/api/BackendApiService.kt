@@ -1,9 +1,11 @@
 package com.example.hellorokid.mobile.api
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
 import com.example.hellorokid.mobile.BuildConfig
+import com.example.hellorokid.mobile.locale.AppLocaleManager
 import com.example.hellorokid.shared.data.BusinessCard
 import com.example.hellorokid.shared.image.ImagePostProcessor
 import kotlinx.coroutines.Dispatchers
@@ -19,12 +21,13 @@ import java.util.concurrent.TimeUnit
 /**
  * 通过后端服务分析名片，API Key 仅保存在服务端。
  */
-class BackendApiService {
+class BackendApiService(context: Context) {
 
     companion object {
         private const val TAG = "BackendApiService"
     }
 
+    private val appContext = context.applicationContext
     private val backendUrl = BuildConfig.BACKEND_URL.trimEnd('/')
 
     private val extractClient = OkHttpClient.Builder()
@@ -39,6 +42,11 @@ class BackendApiService {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    private fun apiLocale(): String {
+        val tag = AppLocaleManager.getLanguageTag(appContext)
+        return AppLocaleManager.toApiLocale(tag)
+    }
+
     /** 快速提取联系信息（仅 OCR，不含情报字段）。 */
     suspend fun extractBusinessCard(jpegBytes: ByteArray): Result<BusinessCard> = withContext(Dispatchers.IO) {
         try {
@@ -52,21 +60,21 @@ class BackendApiService {
 
     suspend fun extractBusinessCard(bitmap: Bitmap, enhance: Boolean = true): Result<BusinessCard> =
         withContext(Dispatchers.IO) {
-        try {
-            val source = if (enhance) ImagePostProcessor.enhanceForOcr(bitmap) else bitmap
-            val created = enhance && source !== bitmap
             try {
-                postExtract(bitmapToBase64(source))
-            } finally {
-                if (created) {
-                    source.recycle()
+                val source = if (enhance) ImagePostProcessor.enhanceForOcr(bitmap) else bitmap
+                val created = enhance && source !== bitmap
+                try {
+                    postExtract(bitmapToBase64(source))
+                } finally {
+                    if (created) {
+                        source.recycle()
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Extract failed", e)
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Extract failed", e)
-            Result.failure(e)
         }
-    }
 
     /** 根据联系信息补充公司情报（Cloudsway + Gemini）。 */
     suspend fun enrichBusinessCard(contact: BusinessCard): Result<BusinessCard> = withContext(Dispatchers.IO) {
@@ -106,6 +114,7 @@ class BackendApiService {
     private fun postExtract(base64Image: String): Result<BusinessCard> {
         val requestBody = JSONObject()
             .put("image", base64Image)
+            .put("uiLocale", apiLocale())
             .toString()
             .toRequestBody("application/json".toMediaType())
 
@@ -120,7 +129,9 @@ class BackendApiService {
     }
 
     private fun postEnrich(contact: BusinessCard): Result<BusinessCard> {
-        val requestBody = contactToJson(contact).toString()
+        val requestBody = contactToJson(contact)
+            .put("outputLocale", apiLocale())
+            .toString()
             .toRequestBody("application/json".toMediaType())
 
         val request = Request.Builder()
@@ -136,6 +147,7 @@ class BackendApiService {
     private fun postAnalyze(base64Image: String): Result<BusinessCard> {
         val requestBody = JSONObject()
             .put("image", base64Image)
+            .put("uiLocale", apiLocale())
             .toString()
             .toRequestBody("application/json".toMediaType())
 
@@ -175,11 +187,17 @@ class BackendApiService {
             .put("email", contact.email)
             .put("address", contact.address)
             .put("website", contact.website)
+            .put("sourceLanguage", contact.sourceLanguage)
+            .put("nameReading", contact.nameReading)
+            .put("companyNameEn", contact.companyNameEn)
+            .put("titleLocalized", contact.titleLocalized)
+            .put("departmentLocalized", contact.departmentLocalized)
+            .put("addressEn", contact.addressEn)
     }
 
-    private fun bitmapToBase64(bitmap: Bitmap): String {
+    private fun bitmapToBase64(bitmap: Bitmap, quality: Int = 92): String {
         val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
         return Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
     }
 
@@ -196,6 +214,12 @@ class BackendApiService {
             email = json.optString("email", ""),
             address = json.optString("address", ""),
             website = json.optString("website", ""),
+            sourceLanguage = json.optString("sourceLanguage", ""),
+            nameReading = json.optString("nameReading", ""),
+            companyNameEn = json.optString("companyNameEn", ""),
+            titleLocalized = json.optString("titleLocalized", ""),
+            departmentLocalized = json.optString("departmentLocalized", ""),
+            addressEn = json.optString("addressEn", ""),
             industry = json.optString("industry", ""),
             companySize = json.optString("companySize", ""),
             revenue = json.optString("revenue", ""),

@@ -4,7 +4,7 @@ import base64
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 try:
     from src.card_analyzer import CardAnalyzer
@@ -57,6 +57,9 @@ async def startup() -> None:
 
 class ImageAnalysisRequest(BaseModel):
     image: str  # Base64 encoded image
+    ui_locale: str = Field(default="zh-CN", alias="uiLocale")
+
+    model_config = {"populate_by_name": True}
 
 
 class ContactEnrichRequest(BaseModel):
@@ -70,6 +73,15 @@ class ContactEnrichRequest(BaseModel):
     email: str = ""
     address: str = ""
     website: str = ""
+    source_language: str = Field(default="", alias="sourceLanguage")
+    name_reading: str = Field(default="", alias="nameReading")
+    company_name_en: str = Field(default="", alias="companyNameEn")
+    title_localized: str = Field(default="", alias="titleLocalized")
+    department_localized: str = Field(default="", alias="departmentLocalized")
+    address_en: str = Field(default="", alias="addressEn")
+    output_locale: str = Field(default="zh-CN", alias="outputLocale")
+
+    model_config = {"populate_by_name": True}
 
 
 @app.get("/")
@@ -93,11 +105,11 @@ async def health():
 
 @app.post("/api/extract")
 async def extract_card(request: ImageAnalysisRequest):
-    """Fast path: OCR contact fields only."""
+    """Fast path: OCR contact fields + optional localization."""
     try:
         image_data = base64.b64decode(request.image)
-        logger.info("Extract request: %d bytes", len(image_data))
-        return card_analyzer.extract(image_data)
+        logger.info("Extract request: %d bytes, ui_locale=%s", len(image_data), request.ui_locale)
+        return card_analyzer.extract(image_data, ui_locale=request.ui_locale)
     except Exception as e:
         logger.error("Extract failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -107,9 +119,31 @@ async def extract_card(request: ImageAnalysisRequest):
 async def enrich_card(request: ContactEnrichRequest):
     """Slow path: search + intelligence fields from contact info."""
     try:
-        contact = request.model_dump()
-        logger.info("Enrich request: company=%r, name=%r", contact.get("company"), contact.get("name"))
-        intel = card_analyzer.enrich(contact)
+        contact = {
+            "name": request.name,
+            "title": request.title,
+            "department": request.department,
+            "company": request.company,
+            "phone": request.phone,
+            "mobile": request.mobile,
+            "fax": request.fax,
+            "email": request.email,
+            "address": request.address,
+            "website": request.website,
+            "sourceLanguage": request.source_language,
+            "nameReading": request.name_reading,
+            "companyNameEn": request.company_name_en,
+            "titleLocalized": request.title_localized,
+            "departmentLocalized": request.department_localized,
+            "addressEn": request.address_en,
+        }
+        logger.info(
+            "Enrich request: company=%r, name=%r, output_locale=%s",
+            contact.get("company"),
+            contact.get("name"),
+            request.output_locale,
+        )
+        intel = card_analyzer.enrich(contact, output_locale=request.output_locale)
         return {**contact, **intel}
     except Exception as e:
         logger.error("Enrich failed: %s", e)
@@ -122,12 +156,13 @@ async def analyze_card(request: ImageAnalysisRequest):
     try:
         image_data = base64.b64decode(request.image)
         logger.info(
-            "Analyze request: %d bytes, model=%s, cloudsway=%s",
+            "Analyze request: %d bytes, model=%s, cloudsway=%s, ui_locale=%s",
             len(image_data),
             GEMINI_MODEL,
             _CLOUDSWAY_CONFIGURED,
+            request.ui_locale,
         )
-        result = card_analyzer.analyze(image_data)
+        result = card_analyzer.analyze(image_data, ui_locale=request.ui_locale)
         return result
     except Exception as e:
         logger.error("Analyze failed: %s", e)

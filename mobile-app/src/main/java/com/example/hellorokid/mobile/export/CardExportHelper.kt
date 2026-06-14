@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.FileProvider
+import com.example.hellorokid.mobile.R
 import com.example.hellorokid.mobile.data.BusinessCardEntity
 import java.io.File
 import java.text.SimpleDateFormat
@@ -22,6 +23,9 @@ object CardExportHelper {
                 appendLine("BEGIN:VCARD")
                 appendLine("VERSION:3.0")
                 appendLine("FN:${card.name}")
+                if (card.nameReading.isNotBlank()) {
+                    appendLine("X-PHONETIC-FIRST-NAME:${card.nameReading}")
+                }
                 appendLine("TITLE:${card.title}")
                 val org = if (card.department.isNotBlank()) {
                     "${card.company};${card.department}"
@@ -29,24 +33,29 @@ object CardExportHelper {
                     card.company
                 }
                 if (org.isNotBlank()) appendLine("ORG:$org")
+                if (card.companyNameEn.isNotBlank()) {
+                    appendLine("X-ORG-EN:${card.companyNameEn}")
+                }
                 if (card.phone.isNotBlank()) appendLine("TEL;TYPE=VOICE:${card.phone}")
                 if (card.mobile.isNotBlank()) appendLine("TEL;TYPE=CELL:${card.mobile}")
                 if (card.fax.isNotBlank()) appendLine("TEL;TYPE=FAX:${card.fax}")
                 if (card.email.isNotBlank()) appendLine("EMAIL:${card.email}")
                 if (card.address.isNotBlank()) appendLine("ADR:;;${card.address}")
+                if (card.addressEn.isNotBlank()) appendLine("X-ADR-EN:${card.addressEn}")
                 if (card.website.isNotBlank()) appendLine("URL:${card.website}")
                 appendLine("END:VCARD")
             }
         }
     }
 
-    fun buildCsvContent(cards: List<BusinessCardEntity>): String {
-        val header = "姓名,职位,部门,公司,电话,手机,传真,邮箱,地址,网站,行业,规模,营收,核心业务,市场,合作伙伴,商机,合作意向,时机,扫描时间"
+    fun buildCsvContent(context: Context, cards: List<BusinessCardEntity>): String {
+        val header = context.getString(R.string.csv_header)
         val rows = cards.map { card ->
             listOf(
-                card.name, card.title, card.department, card.company,
+                card.name, card.nameReading, card.title, card.titleLocalized,
+                card.department, card.departmentLocalized, card.company, card.companyNameEn,
                 card.phone, card.mobile, card.fax, card.email,
-                card.address, card.website, card.industry, card.companySize, card.revenue,
+                card.address, card.addressEn, card.website, card.industry, card.companySize, card.revenue,
                 card.coreBusiness, card.markets, card.partners, card.opportunities,
                 card.investmentReadiness, card.timing, card.scannedAt.toString()
             ).joinToString(",") { "\"${it.replace("\"", "\"\"")}\"" }
@@ -89,7 +98,7 @@ object CardExportHelper {
         }
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: throw IllegalStateException("无法创建导出文件")
+            ?: throw IllegalStateException("Unable to create export file")
 
         resolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
         values.clear()
